@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>FollowDIA</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💉</text></svg>">
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="screen active">
+        <div class="auth-container">
+            <div class="auth-logo">
+                <div class="logo-icon">💉</div>
+                <h1>FollowDIA</h1>
+                <p>Suivi d'insulinothérapie fonctionnelle</p>
+            </div>
+            <form id="auth-form">
+                <div class="input-group">
+                    <input type="password" id="auth-password" placeholder="Mot de passe" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Connexion</button>
+                <div id="auth-error" class="error-msg hidden"></div>
+            </form>
+            <div id="auth-setup" class="hidden">
+                <p>Première utilisation : définissez votre mot de passe</p>
+                <form id="setup-form">
+                    <div class="input-group">
+                        <input type="password" id="setup-password" placeholder="Nouveau mot de passe" required>
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="setup-confirm" placeholder="Confirmer" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Valider</button>
+                    <div id="setup-error" class="error-msg hidden"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app-screen" class="screen">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <h2 id="current-date"></h2>
+            </div>
+            <div class="top-bar-right">
+                <button id="btn-sync" class="icon-btn" title="Synchroniser">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 22v-6h6M21 13a9 9 0 01-15.36 5.36M3 11a9 9 0 0115.36-5.36"/></svg>
+                </button>
+                <button id="btn-settings" class="icon-btn" title="Paramètres">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="meals">Repas</button>
+            <button class="nav-tab" data-tab="glucose">Glycémie</button>
+            <button class="nav-tab" data-tab="dashboard">Tableau de bord</button>
+            <button class="nav-tab" data-tab="foods">Aliments</button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="tab-content">
+            <!-- Meals Tab -->
+            <div id="tab-meals" class="tab-panel active">
+                <!-- Meal selector -->
+                <div class="meal-selector">
+                    <button class="meal-tab active" data-meal="petitdej">
+                        <span class="meal-icon">🌅</span>
+                        <span class="meal-label">Petit-déj</span>
+                        <span class="meal-time">7h30</span>
+                    </button>
+                    <button class="meal-tab" data-meal="dejeuner">
+                        <span class="meal-icon">☀️</span>
+                        <span class="meal-label">Déjeuner</span>
+                        <span class="meal-time">12h00</span>
+                    </button>
+                    <button class="meal-tab" data-meal="gouter">
+                        <span class="meal-icon">🍪</span>
+                        <span class="meal-label">Goûter</span>
+                        <span class="meal-time">16h45</span>
+                    </button>
+                    <button class="meal-tab" data-meal="diner">
+                        <span class="meal-icon">🌙</span>
+                        <span class="meal-label">Dîner</span>
+                        <span class="meal-time">19h00</span>
+                    </button>
+                </div>
+
+                <!-- Meal Content (dynamically filled) -->
+                <div id="meal-content"></div>
+            </div>
+
+            <!-- Glucose Tab -->
+            <div id="tab-glucose" class="tab-panel">
+                <div class="card">
+                    <h3>Glycémie - Dernières 24h</h3>
+                    <div id="glucose-config" class="glucose-config">
+                        <div class="input-group">
+                            <label>URL Nightscout</label>
+                            <input type="url" id="nightscout-url" placeholder="https://votre-nightscout.herokuapp.com">
+                        </div>
+                        <div class="input-group">
+                            <label>Token API (optionnel)</label>
+                            <input type="text" id="nightscout-token" placeholder="Token API">
+                        </div>
+                        <button id="btn-connect-ns" class="btn btn-primary">Connecter</button>
+                    </div>
+                    <canvas id="glucose-chart" width="400" height="250"></canvas>
+                    <div id="glucose-current" class="glucose-current hidden">
+                        <div class="glucose-value">
+                            <span id="glucose-val">--</span>
+                            <span id="glucose-unit">mg/dl</span>
+                        </div>
+                        <span id="glucose-trend" class="glucose-trend">→</span>
+                        <span id="glucose-time" class="glucose-time"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div id="tab-dashboard" class="tab-panel">
+                <div class="card">
+                    <h3>Bilan des 3 derniers jours</h3>
+                    <div id="dashboard-3days"></div>
+                </div>
+                <div class="card">
+                    <h3>Tendance 30 jours</h3>
+                    <div class="meal-filter-row">
+                        <button class="chip active" data-filter="all">Tous</button>
+                        <button class="chip" data-filter="petitdej">Petit-déj</button>
+                        <button class="chip" data-filter="dejeuner">Déjeuner</button>
+                        <button class="chip" data-filter="gouter">Goûter</button>
+                        <button class="chip" data-filter="diner">Dîner</button>
+                    </div>
+                    <canvas id="trend-chart" width="400" height="250"></canvas>
+                    <div id="dashboard-30days"></div>
+                </div>
+            </div>
+
+            <!-- Foods Tab -->
+            <div id="tab-foods" class="tab-panel">
+                <div class="card">
+                    <div class="input-group">
+                        <input type="text" id="food-search" placeholder="Rechercher un aliment...">
+                    </div>
+                    <div id="food-list" class="food-list"></div>
+                    <div class="food-actions">
+                        <button id="btn-add-food" class="btn btn-secondary">Ajouter un aliment</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Paramètres</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <h4>Paramètres par repas</h4>
+                    <div id="settings-meals"></div>
+                    <h4>Nightscout / XDrip</h4>
+                    <div class="input-group">
+                        <label>URL Nightscout</label>
+                        <input type="url" id="settings-ns-url" placeholder="https://...">
+                    </div>
+                    <div class="input-group">
+                        <label>Token API</label>
+                        <input type="text" id="settings-ns-token" placeholder="Token">
+                    </div>
+                    <h4>GitHub Sync</h4>
+                    <div class="input-group">
+                        <label>Token GitHub (Personal Access Token)</label>
+                        <input type="password" id="settings-gh-token" placeholder="ghp_...">
+                    </div>
+                    <div class="input-group">
+                        <label>Gist ID (laissez vide pour en créer un)</label>
+                        <input type="text" id="settings-gist-id" placeholder="ID du Gist">
+                    </div>
+                    <h4>Sécurité</h4>
+                    <button id="btn-change-password" class="btn btn-secondary">Changer le mot de passe</button>
+                    <button id="btn-logout" class="btn btn-danger">Déconnexion</button>
+                </div>
+                <div class="modal-footer">
+                    <button id="btn-save-settings" class="btn btn-primary">Sauvegarder</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Food Modal -->
+        <div id="food-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Ajouter un aliment</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group">
+                        <label>Nom</label>
+                        <input type="text" id="new-food-name" placeholder="Nom de l'aliment">
+                    </div>
+                    <div class="input-group">
+                        <label>Glucides pour 100g</label>
+                        <input type="number" id="new-food-carbs" step="0.1" placeholder="0">
+                    </div>
+                    <div class="input-group">
+                        <label>dont sucres pour 100g</label>
+                        <input type="number" id="new-food-sugar" step="0.1" placeholder="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="btn-save-food" class="btn btn-primary">Ajouter</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
