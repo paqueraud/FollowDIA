@@ -861,22 +861,55 @@ async function fetchGlucose() {
     const url = settings.nightscoutUrl || localStorage.getItem('followdia_ns_url');
     if (!url) return;
 
+    const statusEl = $('#glucose-status');
+
     try {
         const token = settings.nightscoutToken || localStorage.getItem('followdia_ns_token') || '';
+        const baseUrl = url.replace(/\/+$/, '');
+
+        // First test server connectivity with status endpoint
+        let statusUrl = `${baseUrl}/api/v1/status.json`;
+        if (token) statusUrl += `?token=${token}`;
+
+        if (statusEl) statusEl.textContent = 'Connexion en cours...';
+
+        const statusResp = await fetch(statusUrl);
+        if (!statusResp.ok) {
+            const errText = await statusResp.text().catch(() => '');
+            throw new Error(`Serveur Nightscout: erreur ${statusResp.status}. ${errText.slice(0, 100)}`);
+        }
+
+        // Now fetch glucose entries
         const now = Date.now();
         const from = now - 24 * 60 * 60 * 1000;
-        let apiUrl = `${url.replace(/\/$/, '')}/api/v1/entries/sgv.json?find[dateString][$gte]=${new Date(from).toISOString()}&count=288`;
+        let apiUrl = `${baseUrl}/api/v1/entries/sgv.json?find[dateString][$gte]=${new Date(from).toISOString()}&count=288`;
         if (token) apiUrl += `&token=${token}`;
 
         const resp = await fetch(apiUrl);
-        if (!resp.ok) throw new Error('Nightscout error');
+        if (!resp.ok) throw new Error(`Erreur ${resp.status} lors de la récupération des glycémies`);
         glucoseData = await resp.json();
+
+        if (!Array.isArray(glucoseData) || glucoseData.length === 0) {
+            if (statusEl) statusEl.textContent = 'Connecté mais aucune glycémie trouvée (xDrip envoie-t-il des données ?)';
+            glucoseData = [];
+            return;
+        }
+
         glucoseData.sort((a, b) => a.date - b.date);
         renderGlucoseChart();
         renderGlucoseCurrent();
         $('#glucose-current').classList.remove('hidden');
+        if (statusEl) statusEl.textContent = `Connecté - ${glucoseData.length} mesures reçues`;
+        toast(`${glucoseData.length} glycémies récupérées`);
     } catch(e) {
         console.error('Glucose fetch error:', e);
+        const msg = e.message || String(e);
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS')) {
+            if (statusEl) statusEl.textContent = 'Erreur CORS ou réseau. Vérifiez que l\'URL est correcte et que le serveur autorise les requêtes depuis d\'autres sites. Essayez d\'ajouter un token API.';
+        } else {
+            if (statusEl) statusEl.textContent = 'Erreur : ' + msg;
+        }
+        toast('Erreur connexion Nightscout');
     }
 }
 
