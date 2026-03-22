@@ -602,6 +602,10 @@ function bindMealEvents() {
                 md.bolus1_carbs = t.value !== '' ? parseFloat(t.value) : null;
                 md.bolus1_ui = null;
                 const ui = $('#bolus1-ui'); if (ui) ui.value = '';
+                // Record first bolus timestamp
+                if ((md.bolus1_carbs != null || md.bolus1_ui != null) && !md.bolusTimestamp) {
+                    md.bolusTimestamp = new Date().toISOString();
+                }
                 refreshComputedValues(); autoSave(); return;
             }
             if (t.id === 'bolus1-ui') {
@@ -609,6 +613,9 @@ function bindMealEvents() {
                 md.bolus1_ui = t.value !== '' ? parseFloat(t.value) : null;
                 md.bolus1_carbs = null;
                 const c = $('#bolus1-carbs'); if (c) c.value = '';
+                if ((md.bolus1_carbs != null || md.bolus1_ui != null) && !md.bolusTimestamp) {
+                    md.bolusTimestamp = new Date().toISOString();
+                }
                 refreshComputedValues(); autoSave(); return;
             }
             if (t.id === 'bolus2-carbs') {
@@ -1051,7 +1058,8 @@ function render3DaysDashboard() {
 
             const canvasId = `postbolus-${d}-${mi}`;
             const gaugeColor = pct === 0 ? 'var(--text-dim)' : pct < 80 ? 'var(--danger)' : pct > 120 ? 'var(--warning)' : 'var(--success)';
-            const hasData = pct > 0 || (md && md.timestamp);
+            const hasBolus = md && (md.bolus1_carbs != null || md.bolus1_ui != null || md.bolus2_ui != null);
+            const hasData = pct > 0 || hasBolus;
 
             html += `<div class="db-meal-block">
                 <div class="db-meal-label">${m.icon} ${m.label}</div>
@@ -1101,10 +1109,16 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
 
-    // Find bolus timestamp
+    // Find bolus timestamp (use bolusTimestamp if available, fallback to timestamp)
     let bolusTime = null;
-    if (mealData && mealData.timestamp) {
-        bolusTime = new Date(mealData.timestamp).getTime();
+    if (mealData && mealData.bolusTimestamp) {
+        bolusTime = new Date(mealData.bolusTimestamp).getTime();
+    } else if (mealData && mealData.timestamp) {
+        // Legacy fallback: only use if actual bolus data exists
+        const hasBolus = mealData.bolus1_carbs != null || mealData.bolus1_ui != null || mealData.bolus2_ui != null;
+        if (hasBolus) {
+            bolusTime = new Date(mealData.timestamp).getTime();
+        }
     }
 
     if (!bolusTime) {
@@ -1171,11 +1185,13 @@ function drawPostBolusChart(canvas, mealData, mealId) {
         }
     });
 
-    // X-axis labels (hours)
+    // X-axis labels (real clock times)
     ctx.textAlign = 'center';
     for (let h = 0; h <= 4; h++) {
         const t = bolusTime + h * 60 * 60 * 1000;
-        ctx.fillText(h + 'h', x(t), H - 3);
+        const dt = new Date(t);
+        const lbl = dt.getHours() + ':' + String(dt.getMinutes()).padStart(2, '0');
+        ctx.fillText(lbl, x(t), H - 3);
     }
 
     // Draw glucose line
