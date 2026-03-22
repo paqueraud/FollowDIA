@@ -681,53 +681,116 @@ input[type="number"] {
 
 /* Dashboard */
 .dashboard-day {
-    background: var(--bg-card-alt);
-    border-radius: var(--radius-sm);
-    padding: 12px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
 }
 
 .dashboard-day-header {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text-bright);
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--border);
 }
 
-.dashboard-meal-row {
+/* Each meal block in dashboard */
+.db-meal-block {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.db-meal-block:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.db-meal-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+
+.db-meal-content {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    min-height: 80px;
+}
+
+/* Vertical gauge */
+.db-gauge-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 36px;
+    flex-shrink: 0;
+}
+
+.db-gauge {
+    width: 14px;
+    flex: 1;
+    min-height: 60px;
+    background: var(--bg-input);
+    border-radius: 7px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.db-gauge-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 0 0 6px 6px;
+    transition: height 0.5s ease;
+}
+
+.db-gauge-marker {
+    position: absolute;
+    top: 0;
+    left: -2px;
+    right: -2px;
+    height: 1px;
+    background: rgba(255,255,255,0.2);
+}
+
+.db-gauge-value {
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 4px;
+    white-space: nowrap;
+}
+
+/* Post-bolus chart */
+.db-chart-col {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 6px 0;
-    font-size: 13px;
 }
 
-.dashboard-meal-name {
-    width: 70px;
+.db-postbolus-canvas {
+    width: 100% !important;
+    height: 80px !important;
+    display: block;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.15);
+}
+
+.db-no-data {
+    font-size: 12px;
     color: var(--text-dim);
-}
-
-.dashboard-pct-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex: 1;
-    height: 8px;
-    background: var(--bg-input);
-    border-radius: 4px;
-    margin: 0 10px;
-    overflow: hidden;
-}
-
-.dashboard-pct-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.5s;
-}
-
-.dashboard-pct-value {
-    width: 45px;
-    text-align: right;
-    font-weight: 600;
+    background: rgba(0,0,0,0.1);
+    border-radius: 6px;
+    height: 80px;
 }
 
 .pct-low { background: var(--danger); }

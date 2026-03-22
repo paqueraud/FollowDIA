@@ -1034,59 +1034,181 @@ function render3DaysDashboard() {
         for (let i = 0; i < d; i++) date = prevDate(date);
         const dayData = state[date] || {};
 
-        html += `<div class="dashboard-day">
+        html += `<div class="dashboard-day card">
             <div class="dashboard-day-header">${formatDate(date)}</div>`;
 
-        MEALS.forEach(m => {
+        MEALS.forEach((m, mi) => {
             const md = dayData[m.id];
             let pct = 0;
-            let pctText = '-';
-            if (md && md.foods && md.foods.length > 0) {
+            if (md && md.foods && md.foods.length > 0 && md.foods.some(f => f.name)) {
                 const t = calcMealTotals(md, m.id);
                 if (t.totalDueWithCorrection > 0) {
-                    pct = t.pctGiven;
-                    pctText = Math.round(pct) + '%';
+                    pct = Math.round(t.pctGiven);
                 }
             }
-            const pctClass = pct === 0 ? '' : pct < 80 ? 'pct-low' : pct > 120 ? 'pct-high' : 'pct-ok';
-            const pctColor = pct === 0 ? 'var(--text-dim)' : pct < 80 ? 'var(--danger)' : pct > 120 ? 'var(--warning)' : 'var(--success)';
 
-            html += `<div class="dashboard-meal-row">
-                <span class="dashboard-meal-name">${m.label}</span>
-                <div class="dashboard-pct-bar"><div class="dashboard-pct-fill ${pctClass}" style="width:${Math.min(pct, 150)}%"></div></div>
-                <span class="dashboard-pct-value" style="color:${pctColor}">${pctText}</span>
+            const canvasId = `postbolus-${d}-${mi}`;
+            const gaugeColor = pct === 0 ? 'var(--text-dim)' : pct < 80 ? 'var(--danger)' : pct > 120 ? 'var(--warning)' : 'var(--success)';
+            const hasData = pct > 0 || (md && md.timestamp);
+
+            html += `<div class="db-meal-block">
+                <div class="db-meal-label">${m.icon} ${m.label}</div>
+                <div class="db-meal-content">
+                    <div class="db-gauge-col">
+                        <div class="db-gauge">
+                            <div class="db-gauge-fill" style="height:${Math.min(pct, 100)}%;background:${gaugeColor}"></div>
+                            <div class="db-gauge-marker"></div>
+                        </div>
+                        <div class="db-gauge-value" style="color:${gaugeColor}">${pct > 0 ? pct + '%' : '-'}</div>
+                    </div>
+                    <div class="db-chart-col">
+                        ${hasData ? `<canvas id="${canvasId}" class="db-postbolus-canvas"></canvas>` : '<div class="db-no-data">Pas de données</div>'}
+                    </div>
+                </div>
             </div>`;
         });
 
-        // Post-bolus glucose curve placeholder
-        html += renderPostBolusGlucose(date);
         html += '</div>';
     }
     container.innerHTML = html;
+
+    // Now draw the post-bolus glucose charts on each canvas
+    for (let d = 0; d < 3; d++) {
+        let date = currentDate;
+        for (let i = 0; i < d; i++) date = prevDate(date);
+        const dayData = state[date] || {};
+
+        MEALS.forEach((m, mi) => {
+            const canvasId = `postbolus-${d}-${mi}`;
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const md = dayData[m.id];
+            drawPostBolusChart(canvas, md, m.id);
+        });
+    }
 }
 
-function renderPostBolusGlucose(date) {
-    if (glucoseData.length === 0) return '';
-    // For each meal, show glucose 4h after bolus timestamp
-    let html = '<div style="margin-top:8px;font-size:11px;color:var(--text-dim)">';
-    const dayData = state[date] || {};
+function drawPostBolusChart(canvas, mealData, mealId) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width || 250;
+    const H = rect.height || 80;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
 
-    MEALS.forEach(m => {
-        const md = dayData[m.id];
-        if (!md || !md.timestamp) return;
-        const bolusTime = new Date(md.timestamp).getTime();
-        const endTime = bolusTime + 4 * 60 * 60 * 1000;
-        const relevantGlucose = glucoseData.filter(g => g.date >= bolusTime && g.date <= endTime);
-        if (relevantGlucose.length > 0) {
-            const vals = relevantGlucose.map(g => g.sgv || g.value);
-            const avg = Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
-            const min = Math.min(...vals);
-            const max = Math.max(...vals);
-            html += `<div>${m.label}: glycémie post-bolus moy=${avg} (${min}-${max}) mg/dl</div>`;
+    // Find bolus timestamp
+    let bolusTime = null;
+    if (mealData && mealData.timestamp) {
+        bolusTime = new Date(mealData.timestamp).getTime();
+    }
+
+    if (!bolusTime) {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Pas de bolus enregistré', W / 2, H / 2 + 4);
+        return;
+    }
+
+    const endTime = bolusTime + 4 * 60 * 60 * 1000;
+
+    // Filter glucose data for this 4h window
+    const points = glucoseData.filter(g => g.date >= bolusTime && g.date <= endTime);
+
+    if (points.length === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Pas de glycémie disponible', W / 2, H / 2 + 4);
+        return;
+    }
+
+    const padding = { top: 8, right: 6, bottom: 18, left: 30 };
+    const chartW = W - padding.left - padding.right;
+    const chartH = H - padding.top - padding.bottom;
+
+    const values = points.map(p => p.sgv || p.value).filter(v => v > 0);
+    const minVal = Math.min(50, Math.min(...values) - 10);
+    const maxVal = Math.max(300, Math.max(...values) + 10);
+
+    function x(time) { return padding.left + ((time - bolusTime) / (endTime - bolusTime)) * chartW; }
+    function y(val) { return padding.top + chartH - ((val - minVal) / (maxVal - minVal)) * chartH; }
+
+    // Target zone (70-180)
+    ctx.fillStyle = 'rgba(46, 204, 113, 0.07)';
+    const y180 = y(180);
+    const y70 = y(70);
+    ctx.fillRect(padding.left, y180, chartW, y70 - y180);
+
+    // Low zone
+    ctx.fillStyle = 'rgba(231, 76, 60, 0.07)';
+    ctx.fillRect(padding.left, y70, chartW, y(minVal) - y70);
+
+    // Target lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    [70, 180].forEach(v => {
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y(v));
+        ctx.lineTo(W - padding.right, y(v));
+        ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // Y-axis labels
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    [70, 150, 250].forEach(v => {
+        if (v >= minVal && v <= maxVal) {
+            ctx.fillText(v, padding.left - 3, y(v) + 3);
         }
     });
-    html += '</div>';
-    return html;
+
+    // X-axis labels (hours)
+    ctx.textAlign = 'center';
+    for (let h = 0; h <= 4; h++) {
+        const t = bolusTime + h * 60 * 60 * 1000;
+        ctx.fillText(h + 'h', x(t), H - 3);
+    }
+
+    // Draw glucose line
+    ctx.beginPath();
+    ctx.strokeStyle = '#4361ee';
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    let started = false;
+    points.forEach(p => {
+        const val = p.sgv || p.value;
+        if (val <= 0) return;
+        if (!started) { ctx.moveTo(x(p.date), y(val)); started = true; }
+        else ctx.lineTo(x(p.date), y(val));
+    });
+    ctx.stroke();
+
+    // Color-coded dots
+    points.forEach(p => {
+        const val = p.sgv || p.value;
+        if (val <= 0) return;
+        ctx.beginPath();
+        ctx.arc(x(p.date), y(val), 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = val < 70 ? '#e74c3c' : val <= 180 ? '#2ecc71' : val <= 250 ? '#f39c12' : '#e74c3c';
+        ctx.fill();
+    });
+
+    // Start marker (bolus moment)
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, H - padding.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
 }
 
 function render30DaysTrend() {
