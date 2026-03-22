@@ -1,5 +1,6 @@
 /* FollowDIA - Main Application */
 'use strict';
+const APP_VERSION = '20260322a';
 
 // ============================================================
 // CONSTANTS
@@ -1992,6 +1993,39 @@ function updateDateDisplay() {
     $('#current-date').textContent = formatDate(currentDate);
 }
 
+async function checkForUpdate(silent) {
+    try {
+        const resp = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.version && data.version !== APP_VERSION) {
+            if (silent) {
+                toast('Nouvelle version disponible ! Rechargement...');
+                setTimeout(() => forceUpdate(), 1500);
+            } else {
+                forceUpdate();
+            }
+        } else if (!silent) {
+            toast('Application à jour (v' + APP_VERSION + ')');
+        }
+    } catch (e) {
+        if (!silent) toast('Impossible de vérifier les mises à jour');
+    }
+}
+
+function forceUpdate() {
+    // Clear all caches then hard reload
+    if ('caches' in window) {
+        caches.keys().then(names => {
+            names.forEach(name => caches.delete(name));
+        }).then(() => {
+            window.location.href = 'index.html?v=' + Date.now();
+        });
+    } else {
+        window.location.href = 'index.html?v=' + Date.now();
+    }
+}
+
 async function initApp() {
     loadState();
     loadSettings();
@@ -2068,6 +2102,14 @@ async function initApp() {
             });
         }
     });
+
+    // Force update button
+    $('#btn-force-update').addEventListener('click', () => checkForUpdate(false));
+    const verEl = $('#app-version-display');
+    if (verEl) verEl.textContent = 'Version : ' + APP_VERSION;
+
+    // Check for updates silently on startup (after 5s)
+    setTimeout(() => checkForUpdate(true), 5000);
 
     // QR code buttons
     $('#btn-qr-generate').addEventListener('click', qrGenerate);

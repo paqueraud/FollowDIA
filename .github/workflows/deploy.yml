@@ -21,6 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version with commit hash
+        run: |
+          STAMP=$(date +%Y%m%d%H%M)-${GITHUB_SHA::7}
+          echo "{\"version\":\"$STAMP\"}" > version.json
+          sed -i "s/APP_VERSION = '[^']*'/APP_VERSION = '$STAMP'/" js/app.js
+          sed -i "s/app\.css?v=[^\"']*/app.css?v=$STAMP/" index.html
+          sed -i "s/app\.js?v=[^\"']*/app.js?v=$STAMP/" index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
