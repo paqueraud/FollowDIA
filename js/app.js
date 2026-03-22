@@ -426,7 +426,7 @@ function renderMeal() {
     <div class="bolus-input-section">
         <h4>Saisie des bolus repas</h4>
         <div class="bolus-step">
-            <div class="bolus-step-label">1er bolus (début de repas)</div>
+            <div class="bolus-step-label">1er bolus (début de repas)${mealData.bolusTimestamp ? ` <input type="time" id="bolus-time" value="${new Date(mealData.bolusTimestamp).getHours().toString().padStart(2,'0')}:${new Date(mealData.bolusTimestamp).getMinutes().toString().padStart(2,'0')}" style="margin-left:8px;padding:2px 4px;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;width:80px">` : ''}</div>
             <div class="bolus-step-row">
                 <div class="input-group">
                     <label>Glucides (g)</label>
@@ -599,6 +599,17 @@ function bindMealEvents() {
         container.addEventListener('input', e => {
             const t = e.target;
 
+            if (t.id === 'bolus-time') {
+                const md = getMealData(currentDate, currentMeal);
+                if (md.bolusTimestamp && t.value) {
+                    const d = new Date(md.bolusTimestamp);
+                    const [h, m] = t.value.split(':').map(Number);
+                    d.setHours(h, m);
+                    md.bolusTimestamp = d.toISOString();
+                    autoSave();
+                }
+                return;
+            }
             if (t.id === 'meal-glucose') { updateMealField('glucose', t.value ? parseFloat(t.value) : null); return; }
             if (t.id === 'meal-active-insulin') { updateMealField('activeInsulin', parseFloat(t.value) || 0); return; }
             if (t.id === 'meal-correction-given') { updateMealField('correctionGiven', parseFloat(t.value) || 0); return; }
