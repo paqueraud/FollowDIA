@@ -134,7 +134,6 @@ function loadState() {
 
 function saveState() {
     localStorage.setItem('followdia_data', JSON.stringify(state));
-    syncToGist();
 }
 
 function loadSettings() {
