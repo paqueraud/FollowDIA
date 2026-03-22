@@ -845,6 +845,30 @@ canvas {
     border-radius: var(--radius-sm);
 }
 
+/* Glucose chart - full width */
+.glucose-chart-container {
+    margin: 0 -12px; /* bleed into tab-content padding */
+    padding: 0;
+}
+
+.glucose-chart-container canvas {
+    width: 100% !important;
+    border-radius: 0;
+    display: block;
+}
+
+#tab-glucose {
+    padding: 8px 0;
+}
+
+#tab-glucose .glucose-current {
+    margin: 0 12px 8px;
+}
+
+#tab-glucose #glucose-status {
+    margin: 0 12px 8px;
+}
+
 /* Totals bar */
 .totals-bar {
     background: linear-gradient(135deg, var(--bg-card-alt), var(--bg-card));

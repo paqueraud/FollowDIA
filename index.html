@@ -102,29 +102,17 @@
 
             <!-- Glucose Tab -->
             <div id="tab-glucose" class="tab-panel">
-                <div class="card">
-                    <h3>Glycémie - Dernières 24h</h3>
-                    <div id="glucose-config" class="glucose-config">
-                        <div class="input-group">
-                            <label>URL Nightscout</label>
-                            <input type="url" id="nightscout-url" placeholder="https://votre-nightscout.herokuapp.com">
-                        </div>
-                        <div class="input-group">
-                            <label>Token API (optionnel)</label>
-                            <input type="text" id="nightscout-token" placeholder="Token API">
-                        </div>
-                        <button id="btn-connect-ns" class="btn btn-primary">Connecter</button>
+                <div id="glucose-current" class="glucose-current hidden">
+                    <div class="glucose-value">
+                        <span id="glucose-val">--</span>
+                        <span id="glucose-unit">mg/dl</span>
                     </div>
-                    <div id="glucose-status" style="font-size:13px;color:var(--text-dim);margin-bottom:12px;min-height:20px;"></div>
-                    <canvas id="glucose-chart" width="400" height="250"></canvas>
-                    <div id="glucose-current" class="glucose-current hidden">
-                        <div class="glucose-value">
-                            <span id="glucose-val">--</span>
-                            <span id="glucose-unit">mg/dl</span>
-                        </div>
-                        <span id="glucose-trend" class="glucose-trend">→</span>
-                        <span id="glucose-time" class="glucose-time"></span>
-                    </div>
+                    <span id="glucose-trend" class="glucose-trend">→</span>
+                    <span id="glucose-time" class="glucose-time"></span>
+                </div>
+                <div id="glucose-status" style="font-size:13px;color:var(--text-dim);margin-bottom:8px;min-height:20px;text-align:center;"></div>
+                <div class="glucose-chart-container">
+                    <canvas id="glucose-chart"></canvas>
                 </div>
             </div>
 

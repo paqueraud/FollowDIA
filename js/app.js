@@ -932,12 +932,16 @@ function renderGlucoseChart() {
     if (!canvas || glucoseData.length === 0) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    // Calculate available height: viewport minus top bar, nav tabs, current glucose, status, and bottom padding
+    const availableHeight = window.innerHeight - 160;
+    const containerWidth = canvas.parentElement.offsetWidth || window.innerWidth;
+    const H = Math.max(300, Math.min(availableHeight, 600));
+    const W = containerWidth;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
-    const W = rect.width;
-    const H = rect.height;
 
     ctx.clearRect(0, 0, W, H);
 
@@ -1494,14 +1498,6 @@ async function initApp() {
         toast(`${name} ajouté`);
     });
 
-    // Nightscout connect button
-    $('#btn-connect-ns').addEventListener('click', () => {
-        settings.nightscoutUrl = $('#nightscout-url').value.trim();
-        settings.nightscoutToken = $('#nightscout-token').value.trim();
-        saveSettings();
-        fetchGlucose();
-    });
-
     // Dashboard filter chips
     $$('.meal-filter-row .chip').forEach(chip => {
         chip.addEventListener('click', () => {
@@ -1511,11 +1507,6 @@ async function initApp() {
         });
     });
 
-    // Pre-fill nightscout inputs from settings
-    if (settings.nightscoutUrl) {
-        $('#nightscout-url').value = settings.nightscoutUrl;
-        $('#nightscout-token').value = settings.nightscoutToken || '';
-    }
 }
 
 // Boot
