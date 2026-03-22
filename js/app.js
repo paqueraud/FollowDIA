@@ -23,6 +23,12 @@ let currentMeal = 'petitdej';
 let state = {}; // { '2026-03-22': { petitdej: { ... }, dejeuner: { ... }, ... } }
 let settings = {};
 let glucoseData = [];
+let _glucoseViewHours = 3; // default time window in hours
+let _glucoseViewEnd = null; // null = latest data point
+let _glucosePinchDist0 = null;
+let _glucoseHours0 = null;
+let _glucosePanStartX = null;
+let _glucoseViewEnd0 = null;
 
 // ============================================================
 // UTILS
@@ -916,7 +922,9 @@ async function fetchGlucose() {
         }
 
         glucoseData.sort((a, b) => a.date - b.date);
+        _glucoseViewEnd = null; // reset to latest on fresh fetch
         renderGlucoseChart();
+        _initGlucoseChartGestures();
         renderGlucoseCurrent();
         $('#glucose-current').classList.remove('hidden');
         if (statusEl) statusEl.textContent = `Connecté - ${glucoseData.length} mesures reçues`;
@@ -987,7 +995,6 @@ function renderGlucoseChart() {
     if (!canvas || glucoseData.length === 0) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    // Calculate available height: viewport minus top bar, nav tabs, current glucose, status, and bottom padding
     const availableHeight = window.innerHeight - 160;
     const containerWidth = canvas.parentElement.offsetWidth || window.innerWidth;
     const H = Math.max(300, Math.min(availableHeight, 600));
@@ -997,29 +1004,33 @@ function renderGlucoseChart() {
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
-
     ctx.clearRect(0, 0, W, H);
 
     const padding = { top: 20, right: 10, bottom: 30, left: 40 };
     const chartW = W - padding.left - padding.right;
     const chartH = H - padding.top - padding.bottom;
 
-    // Data range
-    const values = glucoseData.map(d => d.sgv || d.value).filter(v => v > 0);
-    const minVal = Math.min(40, Math.min(...values));
-    const maxVal = Math.max(300, Math.max(...values));
-    const minTime = glucoseData[0].date;
-    const maxTime = glucoseData[glucoseData.length - 1].date;
-    const timeRange = maxTime - minTime || 1;
+    // Time window
+    const dataMaxTime = glucoseData[glucoseData.length - 1].date;
+    const dataMinTime = glucoseData[0].date;
+    const windowMs = _glucoseViewHours * 3600000;
+    const viewEnd = _glucoseViewEnd != null ? _glucoseViewEnd : dataMaxTime;
+    const viewStart = viewEnd - windowMs;
 
-    function x(time) { return padding.left + ((time - minTime) / timeRange) * chartW; }
+    // Filter visible data
+    const visible = glucoseData.filter(d => d.date >= viewStart && d.date <= viewEnd);
+
+    // Y range from visible data only
+    const visValues = visible.map(d => d.sgv || d.value).filter(v => v > 0);
+    const minVal = visValues.length > 0 ? Math.min(40, Math.min(...visValues)) : 40;
+    const maxVal = visValues.length > 0 ? Math.max(300, Math.max(...visValues)) : 300;
+
+    function x(time) { return padding.left + ((time - viewStart) / windowMs) * chartW; }
     function y(val) { return padding.top + chartH - ((val - minVal) / (maxVal - minVal)) * chartH; }
 
     // Target zones
     ctx.fillStyle = 'rgba(46, 204, 113, 0.08)';
     ctx.fillRect(padding.left, y(180), chartW, y(70) - y(180));
-
-    // Low zone
     ctx.fillStyle = 'rgba(231, 76, 60, 0.08)';
     ctx.fillRect(padding.left, y(70), chartW, y(minVal) - y(70));
 
@@ -1037,31 +1048,36 @@ function renderGlucoseChart() {
         ctx.fillText(v, padding.left - 4, y(v) + 3);
     });
 
-    // Time labels
+    // Time labels — adaptive interval
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
-    for (let i = 0; i < glucoseData.length; i += Math.floor(glucoseData.length / 6)) {
-        const d = new Date(glucoseData[i].date);
-        ctx.fillText(`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`, x(glucoseData[i].date), H - 5);
+    const labelIntervalMs = _glucoseViewHours <= 2 ? 1800000 : _glucoseViewHours <= 6 ? 3600000 : 7200000;
+    const firstLabel = Math.ceil(viewStart / labelIntervalMs) * labelIntervalMs;
+    for (let t = firstLabel; t <= viewEnd; t += labelIntervalMs) {
+        const d = new Date(t);
+        ctx.fillText(`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`, x(t), H - 5);
     }
 
-    // Line
+    // Line (draw all data for smooth edges at boundaries)
     ctx.beginPath();
     ctx.strokeStyle = '#4361ee';
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
-    glucoseData.forEach((d, i) => {
+    ctx.save();
+    ctx.rect(padding.left, padding.top, chartW, chartH);
+    ctx.clip();
+    let started = false;
+    glucoseData.forEach(d => {
         const val = d.sgv || d.value;
         if (val <= 0) return;
-        if (i === 0) ctx.moveTo(x(d.date), y(val));
+        if (!started) { ctx.moveTo(x(d.date), y(val)); started = true; }
         else ctx.lineTo(x(d.date), y(val));
     });
     ctx.stroke();
 
-    // Dots for recent values
-    const last10 = glucoseData.slice(-10);
-    last10.forEach(d => {
+    // Dots for visible points
+    visible.forEach(d => {
         const val = d.sgv || d.value;
         if (val <= 0) return;
         ctx.beginPath();
@@ -1069,6 +1085,69 @@ function renderGlucoseChart() {
         ctx.fillStyle = val < 70 ? '#e74c3c' : val < 180 ? '#2ecc71' : val < 250 ? '#f39c12' : '#e74c3c';
         ctx.fill();
     });
+    ctx.restore();
+
+    // Zoom hint
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${_glucoseViewHours <= 1 ? Math.round(_glucoseViewHours * 60) + ' min' : round1(_glucoseViewHours) + 'h'}`, W - padding.right, padding.top - 6);
+}
+
+function _initGlucoseChartGestures() {
+    const canvas = $('#glucose-chart');
+    if (!canvas || canvas._gesturesInit) return;
+    canvas._gesturesInit = true;
+
+    const dataTimeRange = () => {
+        if (glucoseData.length < 2) return 24;
+        return (glucoseData[glucoseData.length - 1].date - glucoseData[0].date) / 3600000;
+    };
+
+    // Pinch to zoom (touch)
+    canvas.addEventListener('touchstart', e => {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            _glucosePinchDist0 = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+            _glucoseHours0 = _glucoseViewHours;
+        } else if (e.touches.length === 1) {
+            _glucosePanStartX = e.touches[0].clientX;
+            _glucoseViewEnd0 = _glucoseViewEnd != null ? _glucoseViewEnd : glucoseData[glucoseData.length - 1]?.date || Date.now();
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+        if (e.touches.length === 2 && _glucosePinchDist0 != null) {
+            e.preventDefault();
+            const dist = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+            const scale = _glucosePinchDist0 / Math.max(dist, 10);
+            _glucoseViewHours = Math.max(0.5, Math.min(dataTimeRange(), _glucoseHours0 * scale));
+            renderGlucoseChart();
+        } else if (e.touches.length === 1 && _glucosePanStartX != null) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - _glucosePanStartX;
+            const rect = canvas.getBoundingClientRect();
+            const pxPerMs = rect.width / (_glucoseViewHours * 3600000);
+            const dtMs = -dx / pxPerMs;
+            const maxEnd = glucoseData[glucoseData.length - 1]?.date || Date.now();
+            const minEnd = (glucoseData[0]?.date || 0) + _glucoseViewHours * 3600000;
+            _glucoseViewEnd = Math.max(minEnd, Math.min(maxEnd, _glucoseViewEnd0 + dtMs));
+            renderGlucoseChart();
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+        if (e.touches.length < 2) { _glucosePinchDist0 = null; _glucoseHours0 = null; }
+        if (e.touches.length < 1) { _glucosePanStartX = null; _glucoseViewEnd0 = null; }
+    });
+
+    // Mouse wheel to zoom (PC)
+    canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.2 : 0.8;
+        _glucoseViewHours = Math.max(0.5, Math.min(dataTimeRange(), _glucoseViewHours * factor));
+        renderGlucoseChart();
+    }, { passive: false });
 }
 
 // ============================================================
@@ -1749,7 +1828,7 @@ async function initApp() {
             tab.classList.add('active');
             $(`#tab-${tab.dataset.tab}`).classList.add('active');
             if (tab.dataset.tab === 'dashboard') renderDashboard();
-            if (tab.dataset.tab === 'glucose') { fetchGlucose(); setTimeout(renderGlucoseChart, 100); }
+            if (tab.dataset.tab === 'glucose') { fetchGlucose(); setTimeout(() => { renderGlucoseChart(); _initGlucoseChartGestures(); }, 100); }
             if (tab.dataset.tab === 'foods') renderFoodList('');
             // Show/hide save bar
             const saveBar = document.getElementById('save-bar');
