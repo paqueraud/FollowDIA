@@ -165,7 +165,7 @@ function getMealData(date, mealId) {
             trend: '→',
             activeInsulin: 0,
             correctionGiven: 0,
-            foods: [],
+            foods: [{ name: '', massServed: null, massRemaining: null }],
             bolus1_carbs: null,
             bolus1_ui: null,
             bolus2_carbs: null,
@@ -175,6 +175,10 @@ function getMealData(date, mealId) {
             shape: 5,
             sensorCathChange: ''
         };
+    }
+    // Ensure at least one food entry exists
+    if (!state[date][mealId].foods || state[date][mealId].foods.length === 0) {
+        state[date][mealId].foods = [{ name: '', massServed: null, massRemaining: null }];
     }
     return state[date][mealId];
 }
@@ -367,9 +371,8 @@ function renderMeal() {
     </div>`;
 
     // Food entries
-    const foodsArr = mealData.foods && mealData.foods.length > 0 ? mealData.foods : [{ name: '', massServed: null, massRemaining: null }];
     let foodsHtml = '';
-    foodsArr.forEach((f, i) => {
+    mealData.foods.forEach((f, i) => {
         const calc = calcFoodCarbs(f);
         foodsHtml += `
         <div class="food-entry" data-index="${i}">
@@ -549,18 +552,52 @@ function bindMealEvents() {
     });
 
     // Glucose, active insulin, correction given
-    $('#meal-glucose')?.addEventListener('change', e => updateMealField('glucose', e.target.value ? parseFloat(e.target.value) : null));
-    $('#meal-active-insulin')?.addEventListener('change', e => updateMealField('activeInsulin', parseFloat(e.target.value) || 0));
-    $('#meal-correction-given')?.addEventListener('change', e => updateMealField('correctionGiven', parseFloat(e.target.value) || 0));
+    $('#meal-glucose')?.addEventListener('input', e => updateMealField('glucose', e.target.value ? parseFloat(e.target.value) : null));
+    $('#meal-active-insulin')?.addEventListener('input', e => updateMealField('activeInsulin', parseFloat(e.target.value) || 0));
+    $('#meal-correction-given')?.addEventListener('input', e => updateMealField('correctionGiven', parseFloat(e.target.value) || 0));
 
     // Bolus inputs
-    $('#bolus1-carbs')?.addEventListener('change', e => { updateMealField('bolus1_carbs', e.target.value !== '' ? parseFloat(e.target.value) : null); updateMealField('bolus1_ui', null); renderMeal(); });
-    $('#bolus1-ui')?.addEventListener('change', e => { updateMealField('bolus1_ui', e.target.value !== '' ? parseFloat(e.target.value) : null); updateMealField('bolus1_carbs', null); renderMeal(); });
-    $('#bolus2-carbs')?.addEventListener('change', e => { updateMealField('bolus2_carbs', e.target.value !== '' ? parseFloat(e.target.value) : null); updateMealField('bolus2_ui', null); renderMeal(); });
-    $('#bolus2-ui')?.addEventListener('change', e => { updateMealField('bolus2_ui', e.target.value !== '' ? parseFloat(e.target.value) : null); updateMealField('bolus2_carbs', null); renderMeal(); });
+    $('#bolus1-carbs')?.addEventListener('input', e => {
+        const md = getMealData(currentDate, currentMeal);
+        md.bolus1_carbs = e.target.value !== '' ? parseFloat(e.target.value) : null;
+        md.bolus1_ui = null;
+        const uiInput = $('#bolus1-ui');
+        if (uiInput) uiInput.value = '';
+        refreshComputedValues();
+        autoSave();
+    });
+    $('#bolus1-ui')?.addEventListener('input', e => {
+        const md = getMealData(currentDate, currentMeal);
+        md.bolus1_ui = e.target.value !== '' ? parseFloat(e.target.value) : null;
+        md.bolus1_carbs = null;
+        const carbsInput = $('#bolus1-carbs');
+        if (carbsInput) carbsInput.value = '';
+        refreshComputedValues();
+        autoSave();
+    });
+    $('#bolus2-carbs')?.addEventListener('input', e => {
+        const md = getMealData(currentDate, currentMeal);
+        md.bolus2_carbs = e.target.value !== '' ? parseFloat(e.target.value) : null;
+        md.bolus2_ui = null;
+        const uiInput = $('#bolus2-ui');
+        if (uiInput) uiInput.value = '';
+        refreshComputedValues();
+        autoSave();
+    });
+    $('#bolus2-ui')?.addEventListener('input', e => {
+        const md = getMealData(currentDate, currentMeal);
+        md.bolus2_ui = e.target.value !== '' ? parseFloat(e.target.value) : null;
+        md.bolus2_carbs = null;
+        const carbsInput = $('#bolus2-carbs');
+        if (carbsInput) carbsInput.value = '';
+        refreshComputedValues();
+        autoSave();
+    });
 
     // Want %
-    $('#want-pct')?.addEventListener('change', e => { updateMealField('wantPct', parseInt(e.target.value) || 100); renderMeal(); });
+    $('#want-pct')?.addEventListener('input', e => {
+        updateMealField('wantPct', parseInt(e.target.value) || 100);
+    });
 
     // Food name autocomplete
     $$('.food-name').forEach(input => {
@@ -580,29 +617,41 @@ function bindMealEvents() {
         input.addEventListener('blur', () => {
             setTimeout(() => {
                 acList.classList.remove('show');
-                updateFoodField(idx, 'name', input.value);
-            }, 200);
+                const md = getMealData(currentDate, currentMeal);
+                if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
+                md.foods[idx].name = input.value;
+                refreshFoodResult(idx);
+                refreshComputedValues();
+                autoSave();
+            }, 250);
         });
 
-        acList.addEventListener('click', e => {
+        acList.addEventListener('mousedown', e => {
+            // Use mousedown instead of click to fire before blur
+            e.preventDefault();
             const item = e.target.closest('.autocomplete-item');
             if (item) {
                 input.value = item.dataset.name;
                 acList.classList.remove('show');
-                updateFoodField(idx, 'name', item.dataset.name);
+                const md = getMealData(currentDate, currentMeal);
+                if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
+                md.foods[idx].name = item.dataset.name;
+                refreshFoodResult(idx);
+                refreshComputedValues();
+                autoSave();
             }
         });
     });
 
-    // Food mass inputs
+    // Food mass inputs — use 'input' for real-time updates
     $$('.food-served').forEach(input => {
-        input.addEventListener('change', () => {
+        input.addEventListener('input', () => {
             updateFoodField(parseInt(input.dataset.index), 'massServed', input.value !== '' ? parseFloat(input.value) : null);
         });
     });
 
     $$('.food-remaining').forEach(input => {
-        input.addEventListener('change', () => {
+        input.addEventListener('input', () => {
             updateFoodField(parseInt(input.dataset.index), 'massRemaining', input.value !== '' ? parseFloat(input.value) : null);
         });
     });
@@ -636,20 +685,117 @@ function bindMealEvents() {
 function updateMealField(field, value) {
     const md = getMealData(currentDate, currentMeal);
     md[field] = value;
-    // Re-render correction value if needed
-    if (['glucose', 'trend', 'activeInsulin'].includes(field)) {
-        const params = settings[currentMeal] || {};
-        const correction = calcCorrectionBolus(md.glucose, md.trend, params.sensitivity || 150, params.target || 150, md.activeInsulin || 0);
-        const el = $('#correction-value');
-        if (el) el.textContent = correction.safe > 0 ? round1(correction.safe) + ' UI' : '-';
-    }
+    refreshComputedValues();
+    autoSave();
 }
 
 function updateFoodField(index, field, value) {
     const md = getMealData(currentDate, currentMeal);
     if (!md.foods[index]) md.foods[index] = { name: '', massServed: null, massRemaining: null };
     md.foods[index][field] = value;
-    renderMeal();
+    // Update this food's result display without re-rendering everything
+    refreshFoodResult(index);
+    refreshComputedValues();
+    autoSave();
+}
+
+// Refresh the result line of a single food entry
+function refreshFoodResult(index) {
+    const md = getMealData(currentDate, currentMeal);
+    const f = md.foods[index];
+    if (!f) return;
+    const params = settings[currentMeal] || {};
+    const calc = calcFoodCarbs(f);
+    const entry = $(`.food-entry[data-index="${index}"]`);
+    if (!entry) return;
+    // Remove old result
+    const oldResult = entry.querySelector('.food-result');
+    if (oldResult) oldResult.remove();
+    // Add new result if we have enough data
+    if (f.name && f.massServed != null) {
+        const div = document.createElement('div');
+        div.className = 'food-result';
+        div.innerHTML = `
+            <span>${calc.error ? '<span style="color:var(--danger)">' + calc.error + '</span>' : calc.massAbsorbed + 'g absorbé'}</span>
+            <span class="carbs">${calc.carbs}g glucides</span>
+            <span class="ui">${round2(calc.carbs / (params.ratio || 12))} UI</span>`;
+        entry.appendChild(div);
+    }
+}
+
+// Refresh all computed values (totals, bilan, correction, etc.) without re-rendering inputs
+function refreshComputedValues() {
+    const md = getMealData(currentDate, currentMeal);
+    const params = settings[currentMeal] || {};
+    const totals = calcMealTotals(md, currentMeal);
+
+    // Correction value
+    const corrEl = $('#correction-value');
+    if (corrEl) corrEl.textContent = totals.correction.safe > 0 ? round1(totals.correction.safe) + ' UI' : '-';
+
+    // Totals bar
+    const totalsBar = $('.totals-bar');
+    if (totalsBar) {
+        const items = totalsBar.querySelectorAll('.total-item .value');
+        if (items[0]) items[0].textContent = totals.totalCarbs + 'g';
+        if (items[1]) items[1].textContent = round1(totals.mealBolusUI) + ' UI';
+        if (items[2]) items[2].textContent = round1(totals.totalBolusDue) + ' UI';
+    }
+
+    // Remaining in want-pct section
+    const remainingEl = $('.want-pct-section .remaining');
+    if (remainingEl) {
+        remainingEl.textContent = 'Reste : ' + (totals.remainingUI > 0 ? round1(totals.remainingUI) + ' UI (' + round1(totals.remainingCarbs) + 'g)' : '0');
+    }
+
+    // Bilan section
+    const bilanValues = $$('.bilan-section .bilan-row .bilan-value');
+    if (bilanValues.length >= 6) {
+        bilanValues[0].textContent = round1(totals.mealBolusUI) + ' UI';
+        bilanValues[1].textContent = round1(totals.totalBolusGivenUI) + ' UI';
+        const mealPct = totals.totalBolusDue > 0 ? round1(totals.pctGiven) : 0;
+        bilanValues[2].textContent = totals.totalBolusDue > 0 ? round1(totals.pctGiven) + '%' : '-';
+        bilanValues[2].style.color = mealPct < 80 ? 'var(--danger)' : mealPct > 120 ? 'var(--warning)' : 'var(--success)';
+        bilanValues[3].textContent = round1(totals.totalDueWithCorrection) + ' UI';
+        bilanValues[4].textContent = round1(totals.totalGivenWithCorrection) + ' UI';
+        const totalPct = totals.totalDueWithCorrection > 0 ? round1((totals.totalGivenWithCorrection/totals.totalDueWithCorrection)*100) : 0;
+        bilanValues[5].textContent = totals.totalDueWithCorrection > 0 ? totalPct + '%' : '-';
+        bilanValues[5].style.color = totalPct < 80 ? 'var(--danger)' : totalPct > 120 ? 'var(--warning)' : 'var(--success)';
+    }
+
+    // Daily summary mini
+    const miniItems = $$('.daily-summary-mini .mini-item');
+    MEALS.forEach((m, i) => {
+        if (!miniItems[i]) return;
+        const mealD = state[currentDate]?.[m.id];
+        const pctEl = miniItems[i].querySelector('.mini-pct');
+        if (!pctEl) return;
+        if (mealD && mealD.foods && mealD.foods.length > 0 && mealD.foods.some(f => f.name)) {
+            const t = calcMealTotals(mealD, m.id);
+            if (t.totalDueWithCorrection > 0) {
+                const p = Math.round(t.pctGiven);
+                pctEl.textContent = p + '%';
+                pctEl.style.color = p < 80 ? 'var(--danger)' : p > 120 ? 'var(--warning)' : 'var(--success)';
+            } else {
+                pctEl.textContent = '-';
+                pctEl.style.color = 'var(--text-dim)';
+            }
+        } else {
+            pctEl.textContent = '-';
+            pctEl.style.color = 'var(--text-dim)';
+        }
+    });
+}
+
+// Auto-save with debounce
+let _autoSaveTimer = null;
+function autoSave() {
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = setTimeout(() => {
+        const md = getMealData(currentDate, currentMeal);
+        if (!md.timestamp) md.timestamp = new Date().toISOString();
+        saveState();
+    }, 1500);
 }
 
 // ============================================================
