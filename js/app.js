@@ -1649,15 +1649,33 @@ async function qrGenerate() {
     try {
         const encrypted = await qrEncryptConfig();
         const payload = 'FDIA:' + encrypted;
-        const qr = qrcode(0, 'L');
+        const qr = qrcode(0, 'M');
         qr.addData(payload);
         qr.make();
         const container = $('#qr-display');
-        const size = Math.min(280, window.innerWidth - 80);
-        const cellSize = Math.floor(size / qr.getModuleCount());
-        container.innerHTML = qr.createSvgTag(cellSize, 0);
-        const svg = container.querySelector('svg');
-        if (svg) { svg.style.borderRadius = '8px'; svg.style.background = '#fff'; }
+        const modules = qr.getModuleCount();
+        const size = Math.min(300, window.innerWidth - 60);
+        const cellSize = Math.max(3, Math.floor(size / modules));
+        // Render as canvas for better scanning
+        const cvs = document.createElement('canvas');
+        const totalSize = cellSize * modules + 8; // 4px quiet zone each side
+        cvs.width = totalSize;
+        cvs.height = totalSize;
+        cvs.style.width = totalSize + 'px';
+        cvs.style.height = totalSize + 'px';
+        cvs.style.borderRadius = '8px';
+        const cx = cvs.getContext('2d');
+        cx.fillStyle = '#ffffff';
+        cx.fillRect(0, 0, totalSize, totalSize);
+        cx.fillStyle = '#000000';
+        for (let r = 0; r < modules; r++) {
+            for (let c = 0; c < modules; c++) {
+                if (qr.isDark(r, c)) {
+                    cx.fillRect(4 + c * cellSize, 4 + r * cellSize, cellSize, cellSize);
+                }
+            }
+        }
+        container.appendChild(cvs);
         $('#qr-message').textContent = 'Scannez ce QR code depuis l\'autre appareil';
     } catch (e) {
         console.error('QR generate error:', e);
@@ -1680,39 +1698,62 @@ function qrStopScanner() {
 }
 
 async function qrScan() {
+    if (typeof jsQR !== 'function') {
+        toast('Librairie jsQR non chargée. Vérifiez votre connexion.');
+        return;
+    }
     qrShowModal('Scanner un QR Code');
     $('#qr-scanner-container').classList.remove('hidden');
     $('#qr-message').textContent = 'Démarrage de la caméra...';
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
         });
         _qrScanStream = stream;
         const video = $('#qr-video');
         video.srcObject = stream;
         await video.play();
 
+        // Wait for video to have actual dimensions
+        await new Promise(resolve => {
+            const check = () => {
+                if (video.videoWidth > 0 && video.videoHeight > 0) resolve();
+                else setTimeout(check, 100);
+            };
+            check();
+        });
+
         const scanCanvas = document.createElement('canvas');
         const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-        $('#qr-message').textContent = 'Pointez vers le QR code...';
+        let scanCount = 0;
 
         function scan() {
             if (!_qrScanStream) return;
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 scanCanvas.width = video.videoWidth;
                 scanCanvas.height = video.videoHeight;
-                scanCtx.drawImage(video, 0, 0);
+                scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
                 const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-                const code = jsQR(imageData.data, scanCanvas.width, scanCanvas.height);
-                if (code && code.data.startsWith('FDIA:')) {
-                    qrStopScanner();
-                    qrProcessPayload(code.data);
-                    return;
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+                scanCount++;
+                if (scanCount % 30 === 0) {
+                    $('#qr-message').textContent = `Scan en cours... (${video.videoWidth}x${video.videoHeight}) Pointez vers le QR code`;
+                }
+                if (code) {
+                    if (code.data.startsWith('FDIA:')) {
+                        qrStopScanner();
+                        qrProcessPayload(code.data);
+                        return;
+                    } else {
+                        $('#qr-message').textContent = 'QR code détecté mais ce n\'est pas un code FollowDIA';
+                    }
                 }
             }
             _qrScanRAF = requestAnimationFrame(scan);
         }
+
+        $('#qr-message').textContent = 'Pointez vers le QR code...';
         _qrScanRAF = requestAnimationFrame(scan);
     } catch (e) {
         console.error('Camera error:', e);
@@ -1742,11 +1783,15 @@ async function qrProcessImageFile(file) {
         ctx.drawImage(img, 0, 0);
         URL.revokeObjectURL(url);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, canvas.width, canvas.height);
-        if (code && code.data.startsWith('FDIA:')) {
-            await qrProcessPayload(code.data);
+        const code = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+        if (code) {
+            if (code.data.startsWith('FDIA:')) {
+                await qrProcessPayload(code.data);
+            } else {
+                $('#qr-message').textContent = 'QR code trouvé mais ce n\'est pas un code FollowDIA';
+            }
         } else {
-            $('#qr-message').textContent = 'Aucun QR code FollowDIA détecté dans cette image';
+            $('#qr-message').textContent = `Aucun QR code détecté (image ${canvas.width}x${canvas.height})`;
         }
     } catch (e) {
         console.error('QR image error:', e);
