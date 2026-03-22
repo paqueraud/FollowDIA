@@ -831,14 +831,16 @@ function refreshComputedValues() {
     });
 }
 
-// Auto-save with debounce
+// Auto-save with debounce + sync push
 let _autoSaveTimer = null;
 function autoSave() {
     clearTimeout(_autoSaveTimer);
     _autoSaveTimer = setTimeout(() => {
         const md = getMealData(currentDate, currentMeal);
         if (!md.timestamp) md.timestamp = new Date().toISOString();
+        md.lastModified = new Date().toISOString();
         saveState();
+        scheduleSyncPush();
     }, 1500);
 }
 
@@ -1428,97 +1430,178 @@ function saveSettingsFromUI() {
 // ============================================================
 // GITHUB GIST SYNC
 // ============================================================
+// ============================================================
+// SYNC - Automatic bidirectional GitHub Gist sync
+// ============================================================
+let _syncInProgress = false;
+let _syncPushTimer = null;
+
 async function syncToGist() {
     const token = settings.ghToken;
-    if (!token) return;
+    if (!token || _syncInProgress) return;
 
     const payload = {
         data: state,
-        settings: settings,
+        settings: { ...settings },
         customFoods: JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]'),
         lastSync: new Date().toISOString()
     };
+    // Don't store token in the gist
+    delete payload.settings.ghToken;
+
+    _syncInProgress = true;
+    updateSyncIcon('syncing');
 
     try {
         if (settings.gistId) {
-            // Update existing gist
             const resp = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
                 method: 'PATCH',
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    files: {
-                        'followdia_data.json': { content: JSON.stringify(payload) }
-                    }
-                })
+                headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files: { 'followdia_data.json': { content: JSON.stringify(payload) } } })
             });
-            if (!resp.ok) throw new Error('Gist update failed');
+            if (!resp.ok) throw new Error(`Push failed: ${resp.status}`);
         } else {
-            // Create new gist
             const resp = await fetch('https://api.github.com/gists', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     description: 'FollowDIA - Données de suivi diabète',
                     public: false,
-                    files: {
-                        'followdia_data.json': { content: JSON.stringify(payload) }
-                    }
+                    files: { 'followdia_data.json': { content: JSON.stringify(payload) } }
                 })
             });
-            if (!resp.ok) throw new Error('Gist creation failed');
+            if (!resp.ok) throw new Error(`Create failed: ${resp.status}`);
             const data = await resp.json();
             settings.gistId = data.id;
             saveSettings();
             if ($('#settings-gist-id')) $('#settings-gist-id').value = data.id;
         }
+        updateSyncIcon('ok');
     } catch(e) {
-        console.error('Sync error:', e);
+        console.error('Sync push error:', e);
+        updateSyncIcon('error');
+    } finally {
+        _syncInProgress = false;
     }
 }
 
-async function syncFromGist() {
+// Debounced push: wait 3s after last change before pushing
+function scheduleSyncPush() {
+    if (!settings.ghToken) return;
+    clearTimeout(_syncPushTimer);
+    _syncPushTimer = setTimeout(() => syncToGist(), 3000);
+}
+
+async function syncFromGist(showToast) {
     const token = settings.ghToken;
     const gistId = settings.gistId;
-    if (!token || !gistId) { toast('Configurez GitHub dans les paramètres'); return; }
+    if (!token || !gistId) {
+        if (showToast) toast('Configurez GitHub dans les paramètres');
+        return;
+    }
+    if (_syncInProgress) return;
+
+    _syncInProgress = true;
+    updateSyncIcon('syncing');
 
     try {
         const resp = await fetch(`https://api.github.com/gists/${gistId}`, {
             headers: { 'Authorization': `token ${token}` }
         });
-        if (!resp.ok) throw new Error('Fetch failed');
+        if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
         const gist = await resp.json();
         const content = gist.files['followdia_data.json']?.content;
-        if (!content) throw new Error('No data file');
+        if (!content) throw new Error('No data file in gist');
         const payload = JSON.parse(content);
 
-        // Merge data
+        let changed = false;
+
+        // Smart merge: for each date/meal, keep the one with the most recent timestamp
         if (payload.data) {
             Object.keys(payload.data).forEach(date => {
-                if (!state[date]) state[date] = payload.data[date];
-                else {
+                if (!state[date]) {
+                    state[date] = payload.data[date];
+                    changed = true;
+                } else {
                     Object.keys(payload.data[date]).forEach(meal => {
-                        if (!state[date][meal]) state[date][meal] = payload.data[date][meal];
+                        const remote = payload.data[date][meal];
+                        const local = state[date][meal];
+                        if (!local) {
+                            state[date][meal] = remote;
+                            changed = true;
+                        } else if (remote && remote.timestamp && local.timestamp) {
+                            // Keep the most recently modified
+                            if (new Date(remote.timestamp) > new Date(local.timestamp)) {
+                                state[date][meal] = remote;
+                                changed = true;
+                            }
+                        } else if (remote && remote.timestamp && !local.timestamp) {
+                            state[date][meal] = remote;
+                            changed = true;
+                        }
                     });
                 }
             });
+        }
+
+        // Merge custom foods (union)
+        if (payload.customFoods && payload.customFoods.length > 0) {
+            const localFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
+            const localNames = new Set(localFoods.map(f => f.n.toLowerCase()));
+            const newFoods = payload.customFoods.filter(f => !localNames.has(f.n.toLowerCase()));
+            if (newFoods.length > 0) {
+                const merged = [...localFoods, ...newFoods];
+                localStorage.setItem('followdia_custom_foods', JSON.stringify(merged));
+                await loadFoods();
+                changed = true;
+            }
+        }
+
+        // Merge Nightscout settings if not set locally
+        if (payload.settings) {
+            if (!settings.nightscoutUrl && payload.settings.nightscoutUrl) {
+                settings.nightscoutUrl = payload.settings.nightscoutUrl;
+                settings.nightscoutToken = payload.settings.nightscoutToken || '';
+                saveSettings();
+            }
+            // Merge meal params from remote if they differ from defaults
+            MEALS.forEach(m => {
+                if (payload.settings[m.id]) {
+                    if (!settings[m.id]) settings[m.id] = {};
+                    ['ratio', 'sensitivity', 'target', 'wantPct'].forEach(k => {
+                        if (payload.settings[m.id][k] != null && settings[m.id][k] === m['default' + k.charAt(0).toUpperCase() + k.slice(1)]) {
+                            settings[m.id][k] = payload.settings[m.id][k];
+                        }
+                    });
+                }
+            });
+            saveSettings();
+        }
+
+        if (changed) {
             localStorage.setItem('followdia_data', JSON.stringify(state));
+            renderMeal();
+            updateMealTabs();
         }
-        if (payload.customFoods) {
-            localStorage.setItem('followdia_custom_foods', JSON.stringify(payload.customFoods));
-            await loadFoods();
-        }
-        toast('Données synchronisées');
-        renderMeal();
+
+        updateSyncIcon('ok');
+        if (showToast) toast(changed ? 'Données synchronisées' : 'Déjà à jour');
     } catch(e) {
-        console.error('Sync from gist error:', e);
-        toast('Erreur de synchronisation');
+        console.error('Sync pull error:', e);
+        updateSyncIcon('error');
+        if (showToast) toast('Erreur de synchronisation');
+    } finally {
+        _syncInProgress = false;
     }
+}
+
+function updateSyncIcon(status) {
+    const btn = $('#btn-sync');
+    if (!btn) return;
+    btn.classList.remove('sync-ok', 'sync-error', 'sync-syncing');
+    if (status === 'syncing') btn.classList.add('sync-syncing');
+    else if (status === 'ok') { btn.classList.add('sync-ok'); setTimeout(() => btn.classList.remove('sync-ok'), 3000); }
+    else if (status === 'error') { btn.classList.add('sync-error'); setTimeout(() => btn.classList.remove('sync-error'), 5000); }
 }
 
 // ============================================================
@@ -1537,6 +1620,18 @@ async function initApp() {
     updateMealTabs();
     renderFoodList('');
     fetchGlucose();
+
+    // Auto-sync from Gist on startup (silent)
+    if (settings.ghToken && settings.gistId) {
+        syncFromGist(false);
+    }
+
+    // Periodic sync every 2 minutes
+    setInterval(() => {
+        if (settings.ghToken && settings.gistId) {
+            syncFromGist(false);
+        }
+    }, 120000);
 
     // Tab navigation
     $$('.nav-tab').forEach(tab => {
@@ -1594,7 +1689,7 @@ async function initApp() {
     });
 
     // Sync button
-    $('#btn-sync').addEventListener('click', syncFromGist);
+    $('#btn-sync').addEventListener('click', () => syncFromGist(true));
 
     // Food search
     $('#food-search')?.addEventListener('input', e => renderFoodList(e.target.value));
