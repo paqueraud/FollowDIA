@@ -344,7 +344,10 @@ function renderMeal() {
         <div class="correction-row">
             <div class="input-group">
                 <label>Glycémie (mg/dl)</label>
-                <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric">
+                <div style="display:flex;gap:4px;align-items:center">
+                    <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" style="flex:1">
+                    <button type="button" id="btn-fetch-cgm" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;white-space:nowrap" title="Récupérer depuis le capteur">CGM</button>
+                </div>
             </div>
             <div class="input-group">
                 <label>Insuline active (UI)</label>
@@ -570,6 +573,12 @@ function bindMealEvents() {
                 md.foods.splice(idx, 1);
                 if (md.foods.length === 0) md.foods.push({ name: '', massServed: null, massRemaining: null });
                 renderMeal();
+                return;
+            }
+
+            // Fetch CGM glucose + trend
+            if (e.target.closest('#btn-fetch-cgm')) {
+                fillGlucoseFromCGM();
                 return;
             }
 
@@ -918,14 +927,49 @@ function renderGlucoseCurrent() {
     if (glucoseData.length === 0) return;
     const latest = glucoseData[glucoseData.length - 1];
     $('#glucose-val').textContent = latest.sgv || latest.value || '--';
-    const trendMap = { 'DoubleUp': '↑↑', 'SingleUp': '↑', 'FortyFiveUp': '↗', 'Flat': '→', 'FortyFiveDown': '↘', 'SingleDown': '↓', 'DoubleDown': '↓↓' };
-    $('#glucose-trend').textContent = trendMap[latest.direction] || latest.direction || '→';
+    $('#glucose-trend').textContent = DIRECTION_TO_TREND[latest.direction] || latest.direction || '→';
     const mins = Math.round((Date.now() - latest.date) / 60000);
     $('#glucose-time').textContent = mins < 60 ? `il y a ${mins} min` : `il y a ${Math.round(mins/60)}h`;
 
     const val = latest.sgv || latest.value;
     const valEl = $('#glucose-val');
     valEl.style.color = val < 70 ? 'var(--glucose-low)' : val < 180 ? 'var(--glucose-ok)' : val < 250 ? 'var(--glucose-high)' : 'var(--glucose-very-high)';
+}
+
+const DIRECTION_TO_TREND = { 'DoubleUp': '↑↑', 'SingleUp': '↑', 'FortyFiveUp': '↗', 'Flat': '→', 'FortyFiveDown': '↘', 'SingleDown': '↓', 'DoubleDown': '↓↓' };
+
+async function fillGlucoseFromCGM() {
+    // If no glucose data yet, fetch it first
+    if (glucoseData.length === 0) {
+        await fetchGlucose();
+    }
+    if (glucoseData.length === 0) {
+        toast('Aucune glycémie disponible');
+        return;
+    }
+    const latest = glucoseData[glucoseData.length - 1];
+    const val = latest.sgv || latest.value;
+    const trend = DIRECTION_TO_TREND[latest.direction] || latest.direction || '→';
+
+    // Update state
+    const md = getMealData(currentDate, currentMeal);
+    md.glucose = val;
+    md.trend = trend;
+
+    // Update UI inputs
+    const glucoseInput = $('#meal-glucose');
+    if (glucoseInput) glucoseInput.value = val;
+
+    // Update trend buttons
+    $$('.trend-btn').forEach(b => b.classList.remove('active'));
+    const activeBtn = Array.from($$('.trend-btn')).find(b => b.dataset.trend === trend);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    refreshComputedValues();
+    autoSave();
+
+    const mins = Math.round((Date.now() - latest.date) / 60000);
+    toast(`${val} mg/dl ${trend} (il y a ${mins} min)`);
 }
 
 function renderGlucoseChart() {
