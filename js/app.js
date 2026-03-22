@@ -431,7 +431,7 @@ function renderMeal() {
                     <input type="number" id="bolus1-carbs" value="${mealData.bolus1_carbs != null ? mealData.bolus1_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1">
                 </div>
                 <div class="input-group">
-                    <label>ou UI</label>
+                    <label>UI (si différent)</label>
                     <input type="number" id="bolus1-ui" value="${mealData.bolus1_ui != null ? mealData.bolus1_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
                 </div>
             </div>
@@ -444,7 +444,7 @@ function renderMeal() {
                     <input type="number" id="bolus2-carbs" value="${mealData.bolus2_carbs != null ? mealData.bolus2_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1">
                 </div>
                 <div class="input-group">
-                    <label>ou UI</label>
+                    <label>UI (si différent)</label>
                     <input type="number" id="bolus2-ui" value="${mealData.bolus2_ui != null ? mealData.bolus2_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
                 </div>
             </div>
@@ -600,10 +600,8 @@ function bindMealEvents() {
             if (t.id === 'bolus1-carbs') {
                 const md = getMealData(currentDate, currentMeal);
                 md.bolus1_carbs = t.value !== '' ? parseFloat(t.value) : null;
-                md.bolus1_ui = null;
-                const ui = $('#bolus1-ui'); if (ui) ui.value = '';
                 // Record first bolus timestamp
-                if ((md.bolus1_carbs != null || md.bolus1_ui != null) && !md.bolusTimestamp) {
+                if (md.bolus1_carbs != null && !md.bolusTimestamp) {
                     md.bolusTimestamp = new Date().toISOString();
                 }
                 refreshComputedValues(); autoSave(); return;
@@ -611,9 +609,7 @@ function bindMealEvents() {
             if (t.id === 'bolus1-ui') {
                 const md = getMealData(currentDate, currentMeal);
                 md.bolus1_ui = t.value !== '' ? parseFloat(t.value) : null;
-                md.bolus1_carbs = null;
-                const c = $('#bolus1-carbs'); if (c) c.value = '';
-                if ((md.bolus1_carbs != null || md.bolus1_ui != null) && !md.bolusTimestamp) {
+                if (md.bolus1_ui != null && !md.bolusTimestamp) {
                     md.bolusTimestamp = new Date().toISOString();
                 }
                 refreshComputedValues(); autoSave(); return;
@@ -621,15 +617,11 @@ function bindMealEvents() {
             if (t.id === 'bolus2-carbs') {
                 const md = getMealData(currentDate, currentMeal);
                 md.bolus2_carbs = t.value !== '' ? parseFloat(t.value) : null;
-                md.bolus2_ui = null;
-                const ui = $('#bolus2-ui'); if (ui) ui.value = '';
                 refreshComputedValues(); autoSave(); return;
             }
             if (t.id === 'bolus2-ui') {
                 const md = getMealData(currentDate, currentMeal);
                 md.bolus2_ui = t.value !== '' ? parseFloat(t.value) : null;
-                md.bolus2_carbs = null;
-                const c = $('#bolus2-carbs'); if (c) c.value = '';
                 refreshComputedValues(); autoSave(); return;
             }
 
