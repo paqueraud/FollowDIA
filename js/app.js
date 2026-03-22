@@ -1126,7 +1126,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
         return;
     }
 
-    const padding = { top: 8, right: 6, bottom: 18, left: 30 };
+    const padding = { top: 8, right: 6, bottom: 18, left: 28 };
     const chartW = W - padding.left - padding.right;
     const chartH = H - padding.top - padding.bottom;
 
