@@ -154,6 +154,18 @@ input[type="number"] {
 
 .btn-full { width: 100%; }
 
+.qr-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.qr-buttons .btn {
+    flex: 1;
+    min-width: 120px;
+    font-size: 12px;
+    padding: 8px 6px;
+}
+
 .btn-sm {
     padding: 8px 14px;
     font-size: 13px;

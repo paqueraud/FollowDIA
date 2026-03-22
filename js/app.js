@@ -1572,6 +1572,199 @@ function saveSettingsFromUI() {
 // GITHUB GIST SYNC
 // ============================================================
 // ============================================================
+// QR CODE CONFIG SHARING
+// ============================================================
+const _QR_KEY = 'F0ll0wD1A_2024_QR';
+
+async function _qrDeriveKey() {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(_QR_KEY), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('followdia_qr_salt'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function qrEncryptConfig() {
+    const config = {
+        nightscoutUrl: settings.nightscoutUrl || '',
+        nightscoutToken: settings.nightscoutToken || '',
+        ghToken: settings.ghToken || '',
+        gistId: settings.gistId || ''
+    };
+    const key = await _qrDeriveKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(JSON.stringify(config));
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+    // Combine iv + ciphertext, encode as base64
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+    return btoa(String.fromCharCode(...combined));
+}
+
+async function qrDecryptConfig(b64) {
+    const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const key = await _qrDeriveKey();
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+async function qrApplyConfig(config) {
+    if (config.nightscoutUrl) { settings.nightscoutUrl = config.nightscoutUrl; $('#settings-ns-url').value = config.nightscoutUrl; }
+    if (config.nightscoutToken) { settings.nightscoutToken = config.nightscoutToken; $('#settings-ns-token').value = config.nightscoutToken; }
+    if (config.ghToken) { settings.ghToken = config.ghToken; $('#settings-gh-token').value = config.ghToken; }
+    if (config.gistId) { settings.gistId = config.gistId; $('#settings-gist-id').value = config.gistId; }
+    saveSettings();
+    toast('Configuration importée avec succès');
+}
+
+function qrShowModal(title) {
+    const modal = $('#qr-modal');
+    $('#qr-modal-title').textContent = title;
+    $('#qr-display').innerHTML = '';
+    $('#qr-scanner-container').classList.add('hidden');
+    $('#qr-message').textContent = '';
+    modal.classList.remove('hidden');
+}
+
+function qrHideModal() {
+    $('#qr-modal').classList.add('hidden');
+    qrStopScanner();
+}
+
+async function qrGenerate() {
+    if (!settings.nightscoutUrl && !settings.ghToken) {
+        toast('Aucune configuration à partager');
+        return;
+    }
+    qrShowModal('QR Code de configuration');
+    $('#qr-message').textContent = 'Génération...';
+    try {
+        const encrypted = await qrEncryptConfig();
+        const payload = 'FDIA:' + encrypted;
+        const container = $('#qr-display');
+        const canvas = document.createElement('canvas');
+        container.appendChild(canvas);
+        await QRCode.toCanvas(canvas, payload, {
+            width: Math.min(280, window.innerWidth - 80),
+            margin: 2,
+            color: { dark: '#000000', light: '#ffffff' }
+        });
+        $('#qr-message').textContent = 'Scannez ce QR code depuis l\'autre appareil';
+    } catch (e) {
+        console.error('QR generate error:', e);
+        $('#qr-message').textContent = 'Erreur : ' + e.message;
+    }
+}
+
+let _qrScanStream = null;
+let _qrScanRAF = null;
+
+function qrStopScanner() {
+    if (_qrScanStream) {
+        _qrScanStream.getTracks().forEach(t => t.stop());
+        _qrScanStream = null;
+    }
+    if (_qrScanRAF) {
+        cancelAnimationFrame(_qrScanRAF);
+        _qrScanRAF = null;
+    }
+}
+
+async function qrScan() {
+    qrShowModal('Scanner un QR Code');
+    $('#qr-scanner-container').classList.remove('hidden');
+    $('#qr-message').textContent = 'Démarrage de la caméra...';
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        _qrScanStream = stream;
+        const video = $('#qr-video');
+        video.srcObject = stream;
+        await video.play();
+
+        const scanCanvas = document.createElement('canvas');
+        const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+        $('#qr-message').textContent = 'Pointez vers le QR code...';
+
+        function scan() {
+            if (!_qrScanStream) return;
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                scanCanvas.width = video.videoWidth;
+                scanCanvas.height = video.videoHeight;
+                scanCtx.drawImage(video, 0, 0);
+                const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+                const code = jsQR(imageData.data, scanCanvas.width, scanCanvas.height);
+                if (code && code.data.startsWith('FDIA:')) {
+                    qrStopScanner();
+                    qrProcessPayload(code.data);
+                    return;
+                }
+            }
+            _qrScanRAF = requestAnimationFrame(scan);
+        }
+        _qrScanRAF = requestAnimationFrame(scan);
+    } catch (e) {
+        console.error('Camera error:', e);
+        $('#qr-message').textContent = 'Impossible d\'accéder à la caméra : ' + e.message;
+    }
+}
+
+async function qrFromImage() {
+    $('#qr-file-input').click();
+}
+
+async function qrProcessImageFile(file) {
+    qrShowModal('Lecture du QR Code...');
+    $('#qr-message').textContent = 'Analyse de l\'image...';
+    try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = url;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+        if (code && code.data.startsWith('FDIA:')) {
+            await qrProcessPayload(code.data);
+        } else {
+            $('#qr-message').textContent = 'Aucun QR code FollowDIA détecté dans cette image';
+        }
+    } catch (e) {
+        console.error('QR image error:', e);
+        $('#qr-message').textContent = 'Erreur : ' + e.message;
+    }
+}
+
+async function qrProcessPayload(data) {
+    try {
+        const b64 = data.substring(5); // Remove 'FDIA:' prefix
+        const config = await qrDecryptConfig(b64);
+        await qrApplyConfig(config);
+        qrHideModal();
+    } catch (e) {
+        console.error('QR decrypt error:', e);
+        $('#qr-message').textContent = 'QR code invalide ou non reconnu';
+    }
+}
+
+// ============================================================
 // SYNC - Automatic bidirectional GitHub Gist sync
 // ============================================================
 let _syncInProgress = false;
@@ -1873,6 +2066,18 @@ async function initApp() {
                 toast('Mot de passe changé');
             });
         }
+    });
+
+    // QR code buttons
+    $('#btn-qr-generate').addEventListener('click', qrGenerate);
+    $('#btn-qr-scan').addEventListener('click', qrScan);
+    $('#btn-qr-image').addEventListener('click', qrFromImage);
+    $('#qr-file-input').addEventListener('change', e => {
+        if (e.target.files[0]) qrProcessImageFile(e.target.files[0]);
+        e.target.value = '';
+    });
+    $$('#qr-modal .modal-close, #qr-modal .modal-overlay').forEach(el => {
+        el.addEventListener('click', qrHideModal);
     });
 
     // Sync button
