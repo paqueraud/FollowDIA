@@ -1448,20 +1448,31 @@ async function syncToGist() {
     const token = settings.ghToken;
     if (!token || _syncInProgress) return;
 
-    const payload = {
-        data: state,
-        settings: { ...settings },
-        customFoods: JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]'),
-        lastSync: new Date().toISOString()
-    };
-    // Don't store token in the gist
-    delete payload.settings.ghToken;
-
     _syncInProgress = true;
     updateSyncIcon('syncing');
 
     try {
+        // Pull-merge-push: pull remote first, merge, then push merged result
         if (settings.gistId) {
+            // 1. Pull remote data
+            const pullResp = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
+                headers: { 'Authorization': `token ${token}` }
+            });
+            if (pullResp.ok) {
+                const gist = await pullResp.json();
+                const content = gist.files['followdia_data.json']?.content;
+                if (content) {
+                    const remote = JSON.parse(content);
+                    // Merge remote into local (remote wins if more recent)
+                    if (remote.data) {
+                        mergeRemoteData(remote.data);
+                    }
+                    mergeCustomFoods(remote.customFoods);
+                }
+            }
+
+            // 2. Push merged state
+            const payload = buildSyncPayload();
             const resp = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
@@ -1469,6 +1480,8 @@ async function syncToGist() {
             });
             if (!resp.ok) throw new Error(`Push failed: ${resp.status}`);
         } else {
+            // First sync: create new gist
+            const payload = buildSyncPayload();
             const resp = await fetch('https://api.github.com/gists', {
                 method: 'POST',
                 headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
@@ -1490,6 +1503,61 @@ async function syncToGist() {
         updateSyncIcon('error');
     } finally {
         _syncInProgress = false;
+    }
+}
+
+function buildSyncPayload() {
+    const payload = {
+        data: state,
+        settings: { ...settings },
+        customFoods: JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]'),
+        lastSync: new Date().toISOString()
+    };
+    delete payload.settings.ghToken;
+    return payload;
+}
+
+function getMealTimestamp(mealData) {
+    // Use lastModified for comparison (most accurate), fallback to timestamp
+    return mealData.lastModified || mealData.timestamp || null;
+}
+
+function mergeRemoteData(remoteData) {
+    Object.keys(remoteData).forEach(date => {
+        if (!state[date]) {
+            state[date] = remoteData[date];
+        } else {
+            Object.keys(remoteData[date]).forEach(meal => {
+                const remote = remoteData[date][meal];
+                const local = state[date][meal];
+                if (!local) {
+                    state[date][meal] = remote;
+                } else if (remote) {
+                    const remoteTs = getMealTimestamp(remote);
+                    const localTs = getMealTimestamp(local);
+                    if (remoteTs && localTs) {
+                        if (new Date(remoteTs) > new Date(localTs)) {
+                            state[date][meal] = remote;
+                        }
+                    } else if (remoteTs && !localTs) {
+                        state[date][meal] = remote;
+                    }
+                }
+            });
+        }
+    });
+    saveState();
+}
+
+async function mergeCustomFoods(remoteFoods) {
+    if (!remoteFoods || remoteFoods.length === 0) return;
+    const localFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
+    const localNames = new Set(localFoods.map(f => f.n.toLowerCase()));
+    const newFoods = remoteFoods.filter(f => !localNames.has(f.n.toLowerCase()));
+    if (newFoods.length > 0) {
+        const merged = [...localFoods, ...newFoods];
+        localStorage.setItem('followdia_custom_foods', JSON.stringify(merged));
+        await loadFoods();
     }
 }
 
@@ -1524,45 +1592,16 @@ async function syncFromGist(showToast) {
 
         let changed = false;
 
-        // Smart merge: for each date/meal, keep the one with the most recent timestamp
+        // Smart merge using lastModified/timestamp
         if (payload.data) {
-            Object.keys(payload.data).forEach(date => {
-                if (!state[date]) {
-                    state[date] = payload.data[date];
-                    changed = true;
-                } else {
-                    Object.keys(payload.data[date]).forEach(meal => {
-                        const remote = payload.data[date][meal];
-                        const local = state[date][meal];
-                        if (!local) {
-                            state[date][meal] = remote;
-                            changed = true;
-                        } else if (remote && remote.timestamp && local.timestamp) {
-                            // Keep the most recently modified
-                            if (new Date(remote.timestamp) > new Date(local.timestamp)) {
-                                state[date][meal] = remote;
-                                changed = true;
-                            }
-                        } else if (remote && remote.timestamp && !local.timestamp) {
-                            state[date][meal] = remote;
-                            changed = true;
-                        }
-                    });
-                }
-            });
+            const stateBefore = JSON.stringify(state);
+            mergeRemoteData(payload.data);
+            changed = JSON.stringify(state) !== stateBefore;
         }
 
         // Merge custom foods (union)
-        if (payload.customFoods && payload.customFoods.length > 0) {
-            const localFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
-            const localNames = new Set(localFoods.map(f => f.n.toLowerCase()));
-            const newFoods = payload.customFoods.filter(f => !localNames.has(f.n.toLowerCase()));
-            if (newFoods.length > 0) {
-                const merged = [...localFoods, ...newFoods];
-                localStorage.setItem('followdia_custom_foods', JSON.stringify(merged));
-                await loadFoods();
-                changed = true;
-            }
+        if (payload.customFoods) {
+            await mergeCustomFoods(payload.customFoods);
         }
 
         // Merge Nightscout settings if not set locally
@@ -1587,9 +1626,16 @@ async function syncFromGist(showToast) {
         }
 
         if (changed) {
-            localStorage.setItem('followdia_data', JSON.stringify(state));
             renderMeal();
             updateMealTabs();
+            // Push merged state back to Gist so all devices converge
+            const pushPayload = buildSyncPayload();
+            const pushResp = await fetch(`https://api.github.com/gists/${gistId}`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files: { 'followdia_data.json': { content: JSON.stringify(pushPayload) } } })
+            });
+            if (!pushResp.ok) console.warn('Push-back after merge failed:', pushResp.status);
         }
 
         updateSyncIcon('ok');
@@ -1697,7 +1743,13 @@ async function initApp() {
     });
 
     // Sync button
-    $('#btn-sync').addEventListener('click', () => syncFromGist(true));
+    $('#btn-sync').addEventListener('click', async () => {
+        await syncFromGist(true);
+        // Also push local state so remote has latest merged data
+        if (settings.ghToken && settings.gistId && !_syncInProgress) {
+            await syncToGist();
+        }
+    });
 
     // Food search
     $('#food-search')?.addEventListener('input', e => renderFoodList(e.target.value));
