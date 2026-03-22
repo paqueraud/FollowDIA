@@ -1648,14 +1648,15 @@ async function qrGenerate() {
     try {
         const encrypted = await qrEncryptConfig();
         const payload = 'FDIA:' + encrypted;
+        const qr = qrcode(0, 'L');
+        qr.addData(payload);
+        qr.make();
         const container = $('#qr-display');
-        const canvas = document.createElement('canvas');
-        container.appendChild(canvas);
-        await QRCode.toCanvas(canvas, payload, {
-            width: Math.min(280, window.innerWidth - 80),
-            margin: 2,
-            color: { dark: '#000000', light: '#ffffff' }
-        });
+        const size = Math.min(280, window.innerWidth - 80);
+        const cellSize = Math.floor(size / qr.getModuleCount());
+        container.innerHTML = qr.createSvgTag(cellSize, 0);
+        const svg = container.querySelector('svg');
+        if (svg) { svg.style.borderRadius = '8px'; svg.style.background = '#fff'; }
         $('#qr-message').textContent = 'Scannez ce QR code depuis l\'autre appareil';
     } catch (e) {
         console.error('QR generate error:', e);
