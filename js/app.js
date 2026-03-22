@@ -537,102 +537,151 @@ function renderMeal() {
     bindMealEvents();
 }
 
+let _mealEventsbound = false;
 function bindMealEvents() {
-    // Date nav
-    $('#btn-prev-day')?.addEventListener('click', () => { currentDate = prevDate(currentDate); renderMeal(); updateDateDisplay(); });
-    $('#btn-next-day')?.addEventListener('click', () => { currentDate = nextDate(currentDate); renderMeal(); updateDateDisplay(); });
+    // Use event delegation on #meal-content so we never lose listeners after re-render
+    const container = $('#meal-content');
+    if (!container) return;
 
-    // Trend buttons
-    $$('.trend-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            $$('.trend-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            updateMealField('trend', btn.dataset.trend);
-        });
-    });
+    // Only bind delegation once
+    if (!_mealEventsbound) {
+        _mealEventsbound = true;
 
-    // Glucose, active insulin, correction given
-    $('#meal-glucose')?.addEventListener('input', e => updateMealField('glucose', e.target.value ? parseFloat(e.target.value) : null));
-    $('#meal-active-insulin')?.addEventListener('input', e => updateMealField('activeInsulin', parseFloat(e.target.value) || 0));
-    $('#meal-correction-given')?.addEventListener('input', e => updateMealField('correctionGiven', parseFloat(e.target.value) || 0));
+        // Click delegation
+        container.addEventListener('click', e => {
+            // Date nav
+            if (e.target.closest('#btn-prev-day')) { currentDate = prevDate(currentDate); renderMeal(); updateDateDisplay(); return; }
+            if (e.target.closest('#btn-next-day')) { currentDate = nextDate(currentDate); renderMeal(); updateDateDisplay(); return; }
 
-    // Bolus inputs
-    $('#bolus1-carbs')?.addEventListener('input', e => {
-        const md = getMealData(currentDate, currentMeal);
-        md.bolus1_carbs = e.target.value !== '' ? parseFloat(e.target.value) : null;
-        md.bolus1_ui = null;
-        const uiInput = $('#bolus1-ui');
-        if (uiInput) uiInput.value = '';
-        refreshComputedValues();
-        autoSave();
-    });
-    $('#bolus1-ui')?.addEventListener('input', e => {
-        const md = getMealData(currentDate, currentMeal);
-        md.bolus1_ui = e.target.value !== '' ? parseFloat(e.target.value) : null;
-        md.bolus1_carbs = null;
-        const carbsInput = $('#bolus1-carbs');
-        if (carbsInput) carbsInput.value = '';
-        refreshComputedValues();
-        autoSave();
-    });
-    $('#bolus2-carbs')?.addEventListener('input', e => {
-        const md = getMealData(currentDate, currentMeal);
-        md.bolus2_carbs = e.target.value !== '' ? parseFloat(e.target.value) : null;
-        md.bolus2_ui = null;
-        const uiInput = $('#bolus2-ui');
-        if (uiInput) uiInput.value = '';
-        refreshComputedValues();
-        autoSave();
-    });
-    $('#bolus2-ui')?.addEventListener('input', e => {
-        const md = getMealData(currentDate, currentMeal);
-        md.bolus2_ui = e.target.value !== '' ? parseFloat(e.target.value) : null;
-        md.bolus2_carbs = null;
-        const carbsInput = $('#bolus2-carbs');
-        if (carbsInput) carbsInput.value = '';
-        refreshComputedValues();
-        autoSave();
-    });
+            // Trend buttons
+            const trendBtn = e.target.closest('.trend-btn');
+            if (trendBtn) {
+                $$('.trend-btn', container).forEach(b => b.classList.remove('active'));
+                trendBtn.classList.add('active');
+                updateMealField('trend', trendBtn.dataset.trend);
+                return;
+            }
 
-    // Want %
-    $('#want-pct')?.addEventListener('input', e => {
-        updateMealField('wantPct', parseInt(e.target.value) || 100);
-    });
+            // Remove food
+            const removeBtn = e.target.closest('.btn-remove');
+            if (removeBtn) {
+                const md = getMealData(currentDate, currentMeal);
+                const idx = parseInt(removeBtn.dataset.index);
+                md.foods.splice(idx, 1);
+                if (md.foods.length === 0) md.foods.push({ name: '', massServed: null, massRemaining: null });
+                renderMeal();
+                return;
+            }
 
-    // Food name autocomplete
-    $$('.food-name').forEach(input => {
-        const idx = parseInt(input.dataset.index);
-        const acList = $(`#ac-${idx}`);
-
-        input.addEventListener('input', () => {
-            const results = searchFoods(input.value);
-            if (results.length > 0 && input.value.length >= 1) {
-                acList.innerHTML = results.map((f, ri) => `<div class="autocomplete-item" data-name="${f.n}" data-idx="${ri}">${f.n} <span class="carb-info">${f.g}g/100g</span></div>`).join('');
-                acList.classList.add('show');
-            } else {
-                acList.classList.remove('show');
+            // Add food entry
+            if (e.target.closest('#btn-add-food-entry')) {
+                const md = getMealData(currentDate, currentMeal);
+                md.foods.push({ name: '', massServed: null, massRemaining: null });
+                renderMeal();
+                // Focus the new food name input
+                setTimeout(() => {
+                    const inputs = $$('.food-name', container);
+                    if (inputs.length > 0) inputs[inputs.length - 1].focus();
+                }, 50);
+                return;
             }
         });
 
-        input.addEventListener('blur', () => {
-            setTimeout(() => {
-                acList.classList.remove('show');
+        // Input delegation
+        container.addEventListener('input', e => {
+            const t = e.target;
+
+            if (t.id === 'meal-glucose') { updateMealField('glucose', t.value ? parseFloat(t.value) : null); return; }
+            if (t.id === 'meal-active-insulin') { updateMealField('activeInsulin', parseFloat(t.value) || 0); return; }
+            if (t.id === 'meal-correction-given') { updateMealField('correctionGiven', parseFloat(t.value) || 0); return; }
+            if (t.id === 'want-pct') { updateMealField('wantPct', parseInt(t.value) || 100); return; }
+
+            // Bolus inputs
+            if (t.id === 'bolus1-carbs') {
                 const md = getMealData(currentDate, currentMeal);
-                if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
-                md.foods[idx].name = input.value;
-                refreshFoodResult(idx);
-                refreshComputedValues();
-                autoSave();
-            }, 250);
+                md.bolus1_carbs = t.value !== '' ? parseFloat(t.value) : null;
+                md.bolus1_ui = null;
+                const ui = $('#bolus1-ui'); if (ui) ui.value = '';
+                refreshComputedValues(); autoSave(); return;
+            }
+            if (t.id === 'bolus1-ui') {
+                const md = getMealData(currentDate, currentMeal);
+                md.bolus1_ui = t.value !== '' ? parseFloat(t.value) : null;
+                md.bolus1_carbs = null;
+                const c = $('#bolus1-carbs'); if (c) c.value = '';
+                refreshComputedValues(); autoSave(); return;
+            }
+            if (t.id === 'bolus2-carbs') {
+                const md = getMealData(currentDate, currentMeal);
+                md.bolus2_carbs = t.value !== '' ? parseFloat(t.value) : null;
+                md.bolus2_ui = null;
+                const ui = $('#bolus2-ui'); if (ui) ui.value = '';
+                refreshComputedValues(); autoSave(); return;
+            }
+            if (t.id === 'bolus2-ui') {
+                const md = getMealData(currentDate, currentMeal);
+                md.bolus2_ui = t.value !== '' ? parseFloat(t.value) : null;
+                md.bolus2_carbs = null;
+                const c = $('#bolus2-carbs'); if (c) c.value = '';
+                refreshComputedValues(); autoSave(); return;
+            }
+
+            // Food name autocomplete
+            if (t.classList.contains('food-name')) {
+                const idx = parseInt(t.dataset.index);
+                const acList = $(`#ac-${idx}`);
+                if (acList) {
+                    const results = searchFoods(t.value);
+                    if (results.length > 0 && t.value.length >= 1) {
+                        acList.innerHTML = results.map(f => `<div class="autocomplete-item" data-name="${f.n}">${f.n} <span class="carb-info">${f.g}g/100g</span></div>`).join('');
+                        acList.classList.add('show');
+                    } else {
+                        acList.classList.remove('show');
+                    }
+                }
+                return;
+            }
+
+            // Food mass inputs
+            if (t.classList.contains('food-served')) {
+                updateFoodField(parseInt(t.dataset.index), 'massServed', t.value !== '' ? parseFloat(t.value) : null);
+                return;
+            }
+            if (t.classList.contains('food-remaining')) {
+                updateFoodField(parseInt(t.dataset.index), 'massRemaining', t.value !== '' ? parseFloat(t.value) : null);
+                return;
+            }
         });
 
-        acList.addEventListener('mousedown', e => {
-            // Use mousedown instead of click to fire before blur
-            e.preventDefault();
+        // Blur delegation for food name (save on blur)
+        container.addEventListener('focusout', e => {
+            if (e.target.classList.contains('food-name')) {
+                const idx = parseInt(e.target.dataset.index);
+                const val = e.target.value;
+                setTimeout(() => {
+                    const acList = $(`#ac-${idx}`);
+                    if (acList) acList.classList.remove('show');
+                    const md = getMealData(currentDate, currentMeal);
+                    if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
+                    md.foods[idx].name = val;
+                    refreshFoodResult(idx);
+                    refreshComputedValues();
+                    autoSave();
+                }, 250);
+            }
+        });
+
+        // Mousedown delegation for autocomplete selection
+        container.addEventListener('mousedown', e => {
             const item = e.target.closest('.autocomplete-item');
             if (item) {
-                input.value = item.dataset.name;
-                acList.classList.remove('show');
+                e.preventDefault();
+                const entry = item.closest('.food-entry');
+                const idx = entry ? parseInt(entry.dataset.index) : 0;
+                const nameInput = $(`.food-name[data-index="${idx}"]`, container);
+                if (nameInput) nameInput.value = item.dataset.name;
+                const acList = item.closest('.autocomplete-list');
+                if (acList) acList.classList.remove('show');
                 const md = getMealData(currentDate, currentMeal);
                 if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
                 md.foods[idx].name = item.dataset.name;
@@ -641,45 +690,40 @@ function bindMealEvents() {
                 autoSave();
             }
         });
-    });
 
-    // Food mass inputs — use 'input' for real-time updates
-    $$('.food-served').forEach(input => {
-        input.addEventListener('input', () => {
-            updateFoodField(parseInt(input.dataset.index), 'massServed', input.value !== '' ? parseFloat(input.value) : null);
+        // Touchend delegation for autocomplete on mobile
+        container.addEventListener('touchend', e => {
+            const item = e.target.closest('.autocomplete-item');
+            if (item) {
+                e.preventDefault();
+                const entry = item.closest('.food-entry');
+                const idx = entry ? parseInt(entry.dataset.index) : 0;
+                const nameInput = $(`.food-name[data-index="${idx}"]`, container);
+                if (nameInput) nameInput.value = item.dataset.name;
+                const acList = item.closest('.autocomplete-list');
+                if (acList) acList.classList.remove('show');
+                const md = getMealData(currentDate, currentMeal);
+                if (!md.foods[idx]) md.foods[idx] = { name: '', massServed: null, massRemaining: null };
+                md.foods[idx].name = item.dataset.name;
+                refreshFoodResult(idx);
+                refreshComputedValues();
+                autoSave();
+            }
         });
-    });
+    }
 
-    $$('.food-remaining').forEach(input => {
-        input.addEventListener('input', () => {
-            updateFoodField(parseInt(input.dataset.index), 'massRemaining', input.value !== '' ? parseFloat(input.value) : null);
-        });
-    });
-
-    // Remove food
-    $$('.btn-remove').forEach(btn => {
-        btn.addEventListener('click', () => {
+    // Save button (outside meal-content, only bind once)
+    const saveBtn = document.getElementById('btn-save');
+    if (saveBtn && !saveBtn._bound) {
+        saveBtn._bound = true;
+        saveBtn.addEventListener('click', () => {
             const md = getMealData(currentDate, currentMeal);
-            md.foods.splice(parseInt(btn.dataset.index), 1);
-            renderMeal();
+            if (!md.timestamp) md.timestamp = new Date().toISOString();
+            saveState();
+            toast('Sauvegardé');
+            updateMealTabs();
         });
-    });
-
-    // Add food entry
-    $('#btn-add-food-entry')?.addEventListener('click', () => {
-        const md = getMealData(currentDate, currentMeal);
-        md.foods.push({ name: '', massServed: null, massRemaining: null });
-        renderMeal();
-    });
-
-    // Save button
-    document.getElementById('btn-save')?.addEventListener('click', () => {
-        const md = getMealData(currentDate, currentMeal);
-        if (!md.timestamp) md.timestamp = new Date().toISOString();
-        saveState();
-        toast('Sauvegardé');
-        updateMealTabs();
-    });
+    }
 }
 
 function updateMealField(field, value) {
