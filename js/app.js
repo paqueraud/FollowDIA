@@ -959,7 +959,7 @@ async function fetchGlucose() {
         _initGlucoseChartGestures();
         renderGlucoseCurrent();
         $('#glucose-current').classList.remove('hidden');
-        if (statusEl) statusEl.textContent = `Connecté - ${glucoseData.length} mesures reçues`;
+        if (statusEl) statusEl.textContent = '';
         toast(`${glucoseData.length} glycémies récupérées`);
     } catch(e) {
         console.error('Glucose fetch error:', e);
@@ -1027,9 +1027,12 @@ function renderGlucoseChart() {
     if (!canvas || glucoseData.length === 0) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    const availableHeight = window.innerHeight - 160;
+    // Calculate available height: subtract top bar, nav tabs, glucose current, status, and padding
+    const chartContainer = canvas.closest('.glucose-chart-container');
+    const containerTop = chartContainer ? chartContainer.getBoundingClientRect().top : 120;
+    const availableHeight = window.innerHeight - containerTop - 8;
     const containerWidth = canvas.parentElement.offsetWidth || window.innerWidth;
-    const H = Math.max(300, Math.min(availableHeight, 600));
+    const H = Math.max(200, Math.min(availableHeight, 600));
     const W = containerWidth;
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
