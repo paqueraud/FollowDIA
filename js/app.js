@@ -937,10 +937,10 @@ async function fetchGlucose() {
             throw new Error(`Serveur Nightscout: erreur ${statusResp.status}. ${errText.slice(0, 100)}`);
         }
 
-        // Now fetch glucose entries
+        // Fetch 3 days of glucose entries (for dashboard post-bolus charts)
         const now = Date.now();
-        const from = now - 24 * 60 * 60 * 1000;
-        let apiUrl = `${baseUrl}/api/v1/entries/sgv.json?find[dateString][$gte]=${new Date(from).toISOString()}&count=288`;
+        const from = now - 3 * 24 * 60 * 60 * 1000;
+        let apiUrl = `${baseUrl}/api/v1/entries/sgv.json?find[dateString][$gte]=${new Date(from).toISOString()}&count=864`;
         if (token) apiUrl += `&token=${token}`;
 
         const resp = await fetch(apiUrl);
