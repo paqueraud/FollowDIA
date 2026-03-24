@@ -267,7 +267,7 @@ function calcMealTotals(mealData, mealId) {
     const mealBolusUI = totalCarbs / ratio;
     const totalBolusDue = mealBolusUI + correction.safe;
 
-    // Bolus given
+    // Bolus given (all boluses for % calculation)
     let bolus1 = 0;
     if (mealData.bolus1_ui != null && mealData.bolus1_ui !== '') {
         bolus1 = parseFloat(mealData.bolus1_ui) * ratio; // UI → carbs
@@ -283,16 +283,21 @@ function calcMealTotals(mealData, mealId) {
     const totalBolusGivenCarbs = bolus1 + bolus2;
     const totalBolusGivenUI = totalBolusGivenCarbs / ratio;
 
+    // Boluses counted for "reste à faire" (only checked ones)
+    const bolus1Counted = (mealData.bolus1_count !== false) ? bolus1 : 0;
+    const bolus2Counted = (mealData.bolus2_count !== false) ? bolus2 : 0;
+    const countedBolusUI = (bolus1Counted + bolus2Counted) / ratio;
+
     // Total bolus with correction given
     const totalGivenWithCorrection = totalBolusGivenUI + (parseFloat(mealData.correctionGiven) || 0);
     const totalDueWithCorrection = totalBolusDue;
 
     const pctGiven = totalDueWithCorrection > 0 ? (totalGivenWithCorrection / totalDueWithCorrection) * 100 : 0;
 
-    // Remaining based on wantPct
+    // Remaining based on wantPct (uses only counted boluses)
     const wantPct = mealData.wantPct || 100;
     const wantedUI = (mealBolusUI * wantPct / 100);
-    const remainingUI = wantedUI - totalBolusGivenUI;
+    const remainingUI = wantedUI - countedBolusUI;
     const remainingCarbs = remainingUI * ratio;
 
     return {
@@ -444,6 +449,7 @@ function renderMeal() {
                     <input type="number" id="bolus1-ui" value="${mealData.bolus1_ui != null ? mealData.bolus1_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
                 </div>
             </div>
+            <label class="bolus-count-check"><input type="checkbox" id="bolus1-count" ${mealData.bolus1_count !== false ? 'checked' : ''}> Compter dans le reste à faire</label>
         </div>
         <div class="bolus-step">
             <div class="bolus-step-label">2ème bolus (fin de repas)</div>
@@ -457,6 +463,7 @@ function renderMeal() {
                     <input type="number" id="bolus2-ui" value="${mealData.bolus2_ui != null ? mealData.bolus2_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
                 </div>
             </div>
+            <label class="bolus-count-check"><input type="checkbox" id="bolus2-count" ${mealData.bolus2_count !== false ? 'checked' : ''}> Compter dans le reste à faire</label>
         </div>
         <div class="want-pct-section">
             <label>Je veux :</label>
@@ -606,6 +613,16 @@ function bindMealEvents() {
         container.addEventListener('input', e => {
             const t = e.target;
 
+            if (t.id === 'bolus1-count') {
+                const md = getMealData(currentDate, currentMeal);
+                md.bolus1_count = t.checked;
+                refreshComputedValues(); autoSave(); return;
+            }
+            if (t.id === 'bolus2-count') {
+                const md = getMealData(currentDate, currentMeal);
+                md.bolus2_count = t.checked;
+                refreshComputedValues(); autoSave(); return;
+            }
             if (t.id === 'bolus-time') {
                 const md = getMealData(currentDate, currentMeal);
                 if (md.bolusTimestamp && t.value) {
@@ -716,10 +733,24 @@ function bindMealEvents() {
             }
         });
 
-        // Touchend delegation for autocomplete on mobile
+        // Touch tracking to distinguish scroll from tap in autocomplete
+        let _acTouchStartY = null;
+        container.addEventListener('touchstart', e => {
+            if (e.target.closest('.autocomplete-item')) {
+                _acTouchStartY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
         container.addEventListener('touchend', e => {
             const item = e.target.closest('.autocomplete-item');
             if (item) {
+                // If finger moved more than 10px, it was a scroll, not a tap
+                const endY = e.changedTouches[0].clientY;
+                if (_acTouchStartY != null && Math.abs(endY - _acTouchStartY) > 10) {
+                    _acTouchStartY = null;
+                    return;
+                }
+                _acTouchStartY = null;
                 e.preventDefault();
                 const entry = item.closest('.food-entry');
                 const idx = entry ? parseInt(entry.dataset.index) : 0;
@@ -1043,15 +1074,15 @@ function renderGlucoseChart() {
         ctx.moveTo(padding.left, y(v));
         ctx.lineTo(W - padding.right, y(v));
         ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.font = '10px sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '12px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(v, padding.left - 4, y(v) + 3);
     });
 
     // Time labels — adaptive interval
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     const labelIntervalMs = _glucoseViewHours <= 2 ? 1800000 : _glucoseViewHours <= 6 ? 3600000 : 7200000;
     const firstLabel = Math.ceil(viewStart / labelIntervalMs) * labelIntervalMs;
@@ -1089,8 +1120,8 @@ function renderGlucoseChart() {
     ctx.restore();
 
     // Zoom hint
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.font = '9px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(`${_glucoseViewHours <= 1 ? Math.round(_glucoseViewHours * 60) + ' min' : round1(_glucoseViewHours) + 'h'}`, W - padding.right, padding.top - 6);
 }
@@ -1248,7 +1279,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     }
 
     if (!bolusTime) {
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = '11px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de bolus enregistré', W / 2, H / 2 + 4);
@@ -1261,7 +1292,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     const points = glucoseData.filter(g => g.date >= bolusTime && g.date <= endTime);
 
     if (points.length === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = '11px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de glycémie disponible', W / 2, H / 2 + 4);
@@ -1302,8 +1333,8 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     ctx.setLineDash([]);
 
     // Y-axis labels
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '9px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
     [70, 150, 250].forEach(v => {
         if (v >= minVal && v <= maxVal) {
@@ -1406,7 +1437,7 @@ function render30DaysTrend() {
     });
 
     if (dataPoints.length === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de données sur 30 jours', W/2, H/2);
@@ -1428,8 +1459,8 @@ function render30DaysTrend() {
     ctx.setLineDash([]);
 
     // Grid
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'right';
     [50, 100, 150].forEach(v => {
         if (v <= maxPct) ctx.fillText(v + '%', padding.left - 4, y(v) + 3);
@@ -1454,8 +1485,8 @@ function render30DaysTrend() {
     });
 
     // Day labels
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '9px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '11px sans-serif';
     ctx.textAlign = 'center';
     [0, 7, 14, 21, 29].forEach(i => {
         const date = days[i];

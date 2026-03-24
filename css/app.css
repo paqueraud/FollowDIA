@@ -458,6 +458,8 @@ input[type="number"] {
     border-radius: 0 0 var(--radius-sm) var(--radius-sm);
     max-height: 200px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     z-index: 200;
     display: none;
 }
@@ -569,6 +571,21 @@ input[type="number"] {
     grid-template-columns: 1fr 80px;
     gap: 8px;
     align-items: end;
+}
+
+.bolus-count-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    cursor: pointer;
+}
+.bolus-count-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
 }
 
 .bolus-step-row .or-text {
