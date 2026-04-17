@@ -2093,19 +2093,36 @@ async function checkForUpdate(silent) {
 }
 
 function forceUpdate() {
-    // Clear all caches then hard reload
-    if ('caches' in window) {
-        caches.keys().then(names => {
-            names.forEach(name => caches.delete(name));
-        }).then(() => {
-            window.location.href = 'index.html?v=' + Date.now();
-        });
-    } else {
+    // Unregister SW, clear all caches, then hard reload
+    const swPromise = ('serviceWorker' in navigator)
+        ? navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister())))
+        : Promise.resolve();
+    const cachePromise = ('caches' in window)
+        ? caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
+        : Promise.resolve();
+    Promise.all([swPromise, cachePromise]).then(() => {
         window.location.href = 'index.html?v=' + Date.now();
+    });
+}
+
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').then(reg => {
+            // Check for SW update when we detect a new app version
+            reg.addEventListener('updatefound', () => {
+                const newSW = reg.installing;
+                newSW.addEventListener('statechange', () => {
+                    if (newSW.state === 'activated') {
+                        console.log('Service Worker updated');
+                    }
+                });
+            });
+        }).catch(err => console.warn('SW registration failed:', err));
     }
 }
 
 async function initApp() {
+    registerServiceWorker();
     loadState();
     loadSettings();
     await loadFoods();
