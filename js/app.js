@@ -20,7 +20,7 @@ const TREND_OFFSETS = { '↑↑': 90, '↑': 60, '↗': 30, '→': 0, '↘': -30
 // ============================================================
 let foods = [];
 let currentDate = todayStr();
-let currentMeal = 'petitdej';
+let currentMeal = getMealByTime();
 let state = {}; // { '2026-03-22': { petitdej: { ... }, dejeuner: { ... }, ... } }
 let settings = {};
 let glucoseData = [];
@@ -37,6 +37,14 @@ let _glucoseViewEnd0 = null;
 function todayStr() {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function getMealByTime(d = new Date()) {
+    const t = d.getHours() * 60 + d.getMinutes();
+    if (t >= 4 * 60 && t < 11 * 60) return 'petitdej';
+    if (t >= 11 * 60 && t < 15 * 60) return 'dejeuner';
+    if (t >= 15 * 60 && t < 17 * 60 + 30) return 'gouter';
+    return 'diner';
 }
 
 function formatDate(str) {
