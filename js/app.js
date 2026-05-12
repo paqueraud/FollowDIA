@@ -2159,6 +2159,7 @@ async function initApp() {
             $$('.tab-panel').forEach(p => p.classList.remove('active'));
             tab.classList.add('active');
             $(`#tab-${tab.dataset.tab}`).classList.add('active');
+            sessionStorage.setItem('followdia_active_tab', tab.dataset.tab);
             if (tab.dataset.tab === 'dashboard') renderDashboard();
             if (tab.dataset.tab === 'glucose') { fetchGlucose(); setTimeout(() => { renderGlucoseChart(); _initGlucoseChartGestures(); }, 100); }
             if (tab.dataset.tab === 'foods') renderFoodList('');
@@ -2167,6 +2168,13 @@ async function initApp() {
             if (saveBar) saveBar.style.display = tab.dataset.tab === 'meals' ? 'flex' : 'none';
         });
     });
+
+    // Restore previously active tab after page reload (e.g. pull-to-refresh)
+    const savedTab = sessionStorage.getItem('followdia_active_tab');
+    if (savedTab && savedTab !== 'meals') {
+        const tabBtn = document.querySelector(`.nav-tab[data-tab="${savedTab}"]`);
+        if (tabBtn) tabBtn.click();
+    }
 
     // Meal tabs
     $$('.meal-tab[data-meal]').forEach(tab => {
