@@ -6,10 +6,10 @@ const APP_VERSION = '20260322a';
 // CONSTANTS
 // ============================================================
 const MEALS = [
-    { id: 'petitdej', label: 'Petit-déj', time: '07:30', icon: '🌅', defaultRatio: 12, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 60 },
-    { id: 'dejeuner', label: 'Déjeuner', time: '12:00', icon: '☀️', defaultRatio: 22, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 50 },
-    { id: 'gouter', label: 'Goûter', time: '16:45', icon: '🍪', defaultRatio: 20, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 85 },
-    { id: 'diner', label: 'Dîner', time: '19:00', icon: '🌙', defaultRatio: 26, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 85 }
+    { id: 'petitdej', label: 'Petit-déj', time: '07:30', icon: '🌅', defaultRatio: 12, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 100 },
+    { id: 'dejeuner', label: 'Déjeuner', time: '12:00', icon: '☀️', defaultRatio: 22, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 100 },
+    { id: 'gouter', label: 'Goûter', time: '16:45', icon: '🍪', defaultRatio: 20, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 100 },
+    { id: 'diner', label: 'Dîner', time: '19:00', icon: '🌙', defaultRatio: 26, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 100 }
 ];
 
 const TRENDS = ['↑↑', '↑', '↗', '→', '↘', '↓', '↓↓'];
@@ -176,7 +176,7 @@ function getMealData(date, mealId) {
             bolus1_ui: null,
             bolus2_carbs: null,
             bolus2_ui: null,
-            wantPct: settings[mealId]?.wantPct || 100,
+            wantPct: 100,
             timestamp: null,
             shape: 5,
             sensorCathChange: ''
