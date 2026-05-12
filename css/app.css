@@ -996,10 +996,11 @@ canvas {
     width: 100%;
     padding: 12px;
     background: var(--bg-card-alt);
-    border: 2px dashed var(--border);
+    border: 2px dashed var(--success);
     border-radius: var(--radius-sm);
     color: var(--text-dim);
-    font-size: 14px;
+    font-size: 17px;
+    font-weight: 700;
     cursor: pointer;
     transition: all 0.2s;
     margin-bottom: 12px;
