@@ -420,7 +420,7 @@ input[type="number"] {
 
 /* Width grows only slightly with the font factor so the row never wraps */
 .cc-inputs input {
-    width: calc(50px + 16px * var(--fs, 1));
+    width: calc(72px + 18px * var(--fs, 1));
     padding: 10px 4px;
     text-align: center;
 }
@@ -460,7 +460,9 @@ input[type="number"] {
 .cc-reco {
     background: var(--bg);
     border-radius: var(--radius-sm);
-    padding: 10px 14px;
+    width: fit-content;
+    min-width: calc(60px + 20px * var(--fs, 1));
+    padding: 8px 12px;
     font-size: calc(20px * var(--fs, 1));
     font-weight: 700;
     color: var(--accent-light);

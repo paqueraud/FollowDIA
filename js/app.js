@@ -412,7 +412,7 @@ function renderMeal() {
                 <div class="cc-reco" id="correction-value">${totals.correction.safe > 0 ? round1(totals.correction.safe) + ' UI' : '-'}</div>
             </div>
             <div class="cc-field">
-                <label>Correction réellement faite (UI)</label>
+                <label>Correction faite (UI)</label>
                 <input type="number" id="meal-correction-given" value="${mealData.correctionGiven || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
         </div>
