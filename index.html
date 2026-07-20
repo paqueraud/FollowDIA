@@ -12,39 +12,8 @@
     <link rel="stylesheet" href="css/app.css?v=20260322a">
 </head>
 <body>
-    <!-- Auth Screen -->
-    <div id="auth-screen" class="screen active">
-        <div class="auth-container">
-            <div class="auth-logo">
-                <div class="logo-icon">💉</div>
-                <h1>FollowDIA</h1>
-                <p>Suivi d'insulinothérapie fonctionnelle</p>
-            </div>
-            <form id="auth-form">
-                <div class="input-group">
-                    <input type="password" id="auth-password" placeholder="Mot de passe" autocomplete="current-password" required>
-                </div>
-                <button type="submit" class="btn btn-primary btn-full">Connexion</button>
-                <div id="auth-error" class="error-msg hidden"></div>
-            </form>
-            <div id="auth-setup" class="hidden">
-                <p>Première utilisation : définissez votre mot de passe</p>
-                <form id="setup-form">
-                    <div class="input-group">
-                        <input type="password" id="setup-password" placeholder="Nouveau mot de passe" required>
-                    </div>
-                    <div class="input-group">
-                        <input type="password" id="setup-confirm" placeholder="Confirmer" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-full">Valider</button>
-                    <div id="setup-error" class="error-msg hidden"></div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <!-- Main App -->
-    <div id="app-screen" class="screen">
+    <div id="app-screen" class="screen active">
         <!-- Top Bar -->
         <header class="top-bar">
             <div class="top-bar-left">
@@ -137,7 +106,7 @@
             <div id="tab-foods" class="tab-panel">
                 <div class="card">
                     <div class="input-group">
-                        <input type="text" id="food-search" placeholder="Rechercher un aliment...">
+                        <input type="text" id="food-search" placeholder="Rechercher un aliment..." autocomplete="off">
                     </div>
                     <div id="food-list" class="food-list"></div>
                     <div class="food-actions">
@@ -158,23 +127,28 @@
                 <div class="modal-body">
                     <h4>Paramètres par repas</h4>
                     <div id="settings-meals"></div>
+                    <h4>Apparence</h4>
+                    <div class="theme-toggle-row">
+                        <button id="btn-theme-dark" class="btn btn-secondary">🌙 Sombre</button>
+                        <button id="btn-theme-light" class="btn btn-secondary">☀️ Clair (plein soleil)</button>
+                    </div>
                     <h4>Nightscout / XDrip</h4>
                     <div class="input-group">
                         <label>URL Nightscout</label>
-                        <input type="url" id="settings-ns-url" placeholder="https://...">
+                        <input type="url" id="settings-ns-url" placeholder="https://..." autocomplete="off">
                     </div>
                     <div class="input-group">
                         <label>Token API</label>
-                        <input type="text" id="settings-ns-token" placeholder="Token">
+                        <input type="text" id="settings-ns-token" placeholder="Token" autocomplete="off">
                     </div>
                     <h4>GitHub Sync</h4>
                     <div class="input-group">
                         <label>Token GitHub (Personal Access Token)</label>
-                        <input type="password" id="settings-gh-token" placeholder="ghp_...">
+                        <input type="text" id="settings-gh-token" placeholder="ghp_..." autocomplete="off" spellcheck="false">
                     </div>
                     <div class="input-group">
                         <label>Gist ID (laissez vide pour en créer un)</label>
-                        <input type="text" id="settings-gist-id" placeholder="ID du Gist">
+                        <input type="text" id="settings-gist-id" placeholder="ID du Gist" autocomplete="off" spellcheck="false">
                     </div>
                     <h4>Partage de configuration</h4>
                     <div class="qr-buttons">
@@ -183,9 +157,6 @@
                         <button id="btn-qr-image" class="btn btn-secondary">QRCode depuis image</button>
                         <input type="file" id="qr-file-input" accept="image/*" style="display:none">
                     </div>
-                    <h4>Sécurité</h4>
-                    <button id="btn-change-password" class="btn btn-secondary">Changer le mot de passe</button>
-                    <button id="btn-logout" class="btn btn-danger">Déconnexion</button>
                     <h4>Application</h4>
                     <button id="btn-force-update" class="btn btn-secondary">Forcer la mise à jour</button>
                     <p id="app-version-display" style="margin-top:8px;font-size:11px;color:var(--text-dim)"></p>
@@ -207,15 +178,15 @@
                 <div class="modal-body">
                     <div class="input-group">
                         <label>Nom</label>
-                        <input type="text" id="new-food-name" placeholder="Nom de l'aliment">
+                        <input type="text" id="new-food-name" placeholder="Nom de l'aliment" autocomplete="off">
                     </div>
                     <div class="input-group">
                         <label>Glucides pour 100g</label>
-                        <input type="number" id="new-food-carbs" step="0.1" placeholder="0">
+                        <input type="number" id="new-food-carbs" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
                     </div>
                     <div class="input-group">
                         <label>dont sucres pour 100g</label>
-                        <input type="number" id="new-food-sugar" step="0.1" placeholder="0">
+                        <input type="number" id="new-food-sugar" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
                     </div>
                 </div>
                 <div class="modal-footer">

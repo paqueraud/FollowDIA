@@ -82,60 +82,51 @@ function toast(msg) {
 }
 
 // ============================================================
-// AUTH
+// THEME
 // ============================================================
-function initAuth() {
-    const hasPassword = localStorage.getItem('followdia_pw_hash');
-    if (!hasPassword) {
-        $('#auth-form').classList.add('hidden');
-        $('#auth-setup').classList.remove('hidden');
-    }
-
-    $('#auth-form').addEventListener('submit', async e => {
-        e.preventDefault();
-        const pw = $('#auth-password').value;
-        const hash = await hashPassword(pw);
-        if (hash === localStorage.getItem('followdia_pw_hash')) {
-            sessionStorage.setItem('followdia_auth', '1');
-            showApp();
-        } else {
-            $('#auth-error').textContent = 'Mot de passe incorrect';
-            $('#auth-error').classList.remove('hidden');
-        }
-    });
-
-    $('#setup-form').addEventListener('submit', async e => {
-        e.preventDefault();
-        const pw = $('#setup-password').value;
-        const confirm = $('#setup-confirm').value;
-        if (pw !== confirm) {
-            $('#setup-error').textContent = 'Les mots de passe ne correspondent pas';
-            $('#setup-error').classList.remove('hidden');
-            return;
-        }
-        if (pw.length < 4) {
-            $('#setup-error').textContent = 'Minimum 4 caractères';
-            $('#setup-error').classList.remove('hidden');
-            return;
-        }
-        const hash = await hashPassword(pw);
-        localStorage.setItem('followdia_pw_hash', hash);
-        sessionStorage.setItem('followdia_auth', '1');
-        showApp();
-    });
+function isLightTheme() {
+    return document.documentElement.dataset.theme === 'light';
 }
 
-async function hashPassword(pw) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(pw + 'followdia_salt_2024');
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'light' ? '#ffffff' : '#1a1a2e');
+    updateThemeButtons();
 }
 
-function showApp() {
-    $('#auth-screen').classList.remove('active');
-    $('#app-screen').classList.add('active');
-    initApp();
+function updateThemeButtons() {
+    const dark = $('#btn-theme-dark');
+    const light = $('#btn-theme-light');
+    if (dark) dark.classList.toggle('active', !isLightTheme());
+    if (light) light.classList.toggle('active', isLightTheme());
+}
+
+function setTheme(theme) {
+    applyTheme(theme);
+    settings.theme = theme;
+    saveSettings();
+    // Re-draw canvases so their colors match the new theme
+    renderGlucoseChart();
+    if ($('#tab-dashboard')?.classList.contains('active')) renderDashboard();
+}
+
+// Ink color for canvas text/grids, readable on both themes
+function chartInk(alpha) {
+    if (isLightTheme()) return `rgba(10,10,26,${Math.min(1, alpha + 0.25)})`;
+    return `rgba(255,255,255,${alpha})`;
+}
+
+function chartLineColor() {
+    return isLightTheme() ? '#1d3fd6' : '#4361ee';
+}
+
+function glucosePointColor(val) {
+    const light = isLightTheme();
+    if (val < 70) return light ? '#c02717' : '#e74c3c';
+    if (val <= 180) return light ? '#157a3a' : '#2ecc71';
+    if (val <= 250) return light ? '#8a5a00' : '#f39c12';
+    return light ? '#c02717' : '#e74c3c';
 }
 
 // ============================================================
@@ -364,13 +355,13 @@ function renderMeal() {
             <div class="input-group">
                 <label>Glycémie (mg/dl)</label>
                 <div style="display:flex;gap:4px;align-items:center">
-                    <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" style="flex:1">
+                    <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" autocomplete="off" style="flex:1">
                     <button type="button" id="btn-fetch-cgm" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;white-space:nowrap" title="Récupérer depuis le capteur">CGM</button>
                 </div>
             </div>
             <div class="input-group">
                 <label>Insuline active (UI)</label>
-                <input type="number" id="meal-active-insulin" value="${mealData.activeInsulin || ''}" step="0.1" placeholder="0" inputmode="decimal">
+                <input type="number" id="meal-active-insulin" value="${mealData.activeInsulin || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
         </div>
         <div class="input-group">
@@ -386,7 +377,7 @@ function renderMeal() {
         <div class="correction-row" style="margin-top:8px">
             <div class="input-group">
                 <label>Correction réellement faite (UI)</label>
-                <input type="number" id="meal-correction-given" value="${mealData.correctionGiven || ''}" step="0.1" placeholder="0" inputmode="decimal">
+                <input type="number" id="meal-correction-given" value="${mealData.correctionGiven || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
             <div></div>
         </div>
@@ -408,11 +399,11 @@ function renderMeal() {
             <div class="food-masses">
                 <div class="input-group">
                     <label>Masse servie (g)</label>
-                    <input type="number" class="food-served" value="${f.massServed != null ? f.massServed : ''}" placeholder="0" data-index="${i}" inputmode="decimal" step="0.1">
+                    <input type="number" class="food-served" value="${f.massServed != null ? f.massServed : ''}" placeholder="0" data-index="${i}" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>Masse restante (g)</label>
-                    <input type="number" class="food-remaining" value="${f.massRemaining != null ? f.massRemaining : ''}" placeholder="0" data-index="${i}" inputmode="decimal" step="0.1">
+                    <input type="number" class="food-remaining" value="${f.massRemaining != null ? f.massRemaining : ''}" placeholder="0" data-index="${i}" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
             </div>
             ${f.name && f.massServed != null ? `
@@ -450,11 +441,11 @@ function renderMeal() {
             <div class="bolus-step-row">
                 <div class="input-group">
                     <label>Glucides (g)</label>
-                    <input type="number" id="bolus1-carbs" value="${mealData.bolus1_carbs != null ? mealData.bolus1_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1">
+                    <input type="number" id="bolus1-carbs" value="${mealData.bolus1_carbs != null ? mealData.bolus1_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>UI (si différent)</label>
-                    <input type="number" id="bolus1-ui" value="${mealData.bolus1_ui != null ? mealData.bolus1_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
+                    <input type="number" id="bolus1-ui" value="${mealData.bolus1_ui != null ? mealData.bolus1_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
             </div>
             <label class="bolus-count-check"><input type="checkbox" id="bolus1-count" ${mealData.bolus1_count !== false ? 'checked' : ''}> Compter dans le reste à faire</label>
@@ -464,18 +455,18 @@ function renderMeal() {
             <div class="bolus-step-row">
                 <div class="input-group">
                     <label>Glucides (g)</label>
-                    <input type="number" id="bolus2-carbs" value="${mealData.bolus2_carbs != null ? mealData.bolus2_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1">
+                    <input type="number" id="bolus2-carbs" value="${mealData.bolus2_carbs != null ? mealData.bolus2_carbs : ''}" placeholder="glucides" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>UI (si différent)</label>
-                    <input type="number" id="bolus2-ui" value="${mealData.bolus2_ui != null ? mealData.bolus2_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1">
+                    <input type="number" id="bolus2-ui" value="${mealData.bolus2_ui != null ? mealData.bolus2_ui : ''}" placeholder="UI" inputmode="decimal" step="0.1" autocomplete="off">
                 </div>
             </div>
             <label class="bolus-count-check"><input type="checkbox" id="bolus2-count" ${mealData.bolus2_count !== false ? 'checked' : ''}> Compter dans le reste à faire</label>
         </div>
         <div class="want-pct-section">
             <label>Je veux :</label>
-            <input type="number" id="want-pct" value="${mealData.wantPct || 100}" min="0" max="200" inputmode="numeric">
+            <input type="number" id="want-pct" value="${mealData.wantPct || 100}" min="0" max="200" inputmode="numeric" autocomplete="off">
             <label>%</label>
             <span class="remaining">Reste : ${totals.remainingUI > 0 ? round1(totals.remainingUI) + ' UI (' + round1(totals.remainingCarbs) + 'g)' : '0'}</span>
         </div>
@@ -1078,21 +1069,21 @@ function renderGlucoseChart() {
     ctx.fillRect(padding.left, y(70), chartW, y(minVal) - y(70));
 
     // Grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = chartInk(0.07);
     ctx.lineWidth = 1;
     [70, 100, 150, 180, 250].forEach(v => {
         ctx.beginPath();
         ctx.moveTo(padding.left, y(v));
         ctx.lineTo(W - padding.right, y(v));
         ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillStyle = chartInk(0.6);
         ctx.font = '12px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(v, padding.left - 4, y(v) + 3);
     });
 
     // Time labels — adaptive interval
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = chartInk(0.6);
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     const labelIntervalMs = _glucoseViewHours <= 2 ? 1800000 : _glucoseViewHours <= 6 ? 3600000 : 7200000;
@@ -1104,7 +1095,7 @@ function renderGlucoseChart() {
 
     // Line (draw all data for smooth edges at boundaries)
     ctx.beginPath();
-    ctx.strokeStyle = '#4361ee';
+    ctx.strokeStyle = chartLineColor();
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.save();
@@ -1125,13 +1116,13 @@ function renderGlucoseChart() {
         if (val <= 0) return;
         ctx.beginPath();
         ctx.arc(x(d.date), y(val), 3, 0, Math.PI * 2);
-        ctx.fillStyle = val < 70 ? '#e74c3c' : val < 180 ? '#2ecc71' : val < 250 ? '#f39c12' : '#e74c3c';
+        ctx.fillStyle = glucosePointColor(val);
         ctx.fill();
     });
     ctx.restore();
 
     // Zoom hint
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillStyle = chartInk(0.5);
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(`${_glucoseViewHours <= 1 ? Math.round(_glucoseViewHours * 60) + ' min' : round1(_glucoseViewHours) + 'h'}`, W - padding.right, padding.top - 6);
@@ -1290,7 +1281,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     }
 
     if (!bolusTime) {
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillStyle = chartInk(0.4);
         ctx.font = '11px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de bolus enregistré', W / 2, H / 2 + 4);
@@ -1303,7 +1294,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     const points = glucoseData.filter(g => g.date >= bolusTime && g.date <= endTime);
 
     if (points.length === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillStyle = chartInk(0.4);
         ctx.font = '11px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de glycémie disponible', W / 2, H / 2 + 4);
@@ -1332,7 +1323,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     ctx.fillRect(padding.left, y70, chartW, y(minVal) - y70);
 
     // Target lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeStyle = chartInk(0.1);
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     [70, 180].forEach(v => {
@@ -1344,7 +1335,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
     ctx.setLineDash([]);
 
     // Y-axis labels
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = chartInk(0.6);
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
     [70, 150, 250].forEach(v => {
@@ -1364,7 +1355,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
 
     // Draw glucose line
     ctx.beginPath();
-    ctx.strokeStyle = '#4361ee';
+    ctx.strokeStyle = chartLineColor();
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     let started = false;
@@ -1382,13 +1373,13 @@ function drawPostBolusChart(canvas, mealData, mealId) {
         if (val <= 0) return;
         ctx.beginPath();
         ctx.arc(x(p.date), y(val), 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = val < 70 ? '#e74c3c' : val <= 180 ? '#2ecc71' : val <= 250 ? '#f39c12' : '#e74c3c';
+        ctx.fillStyle = glucosePointColor(val);
         ctx.fill();
     });
 
     // Start marker (bolus moment)
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.strokeStyle = chartInk(0.3);
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 2]);
     ctx.moveTo(padding.left, padding.top);
@@ -1448,7 +1439,7 @@ function render30DaysTrend() {
     });
 
     if (dataPoints.length === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillStyle = chartInk(0.6);
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Pas de données sur 30 jours', W/2, H/2);
@@ -1470,7 +1461,7 @@ function render30DaysTrend() {
     ctx.setLineDash([]);
 
     // Grid
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = chartInk(0.6);
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'right';
     [50, 100, 150].forEach(v => {
@@ -1479,7 +1470,7 @@ function render30DaysTrend() {
 
     // Data line
     ctx.beginPath();
-    ctx.strokeStyle = '#4361ee';
+    ctx.strokeStyle = chartLineColor();
     ctx.lineWidth = 2;
     dataPoints.forEach((p, i) => {
         if (i === 0) ctx.moveTo(x(p.x), y(p.y));
@@ -1491,12 +1482,14 @@ function render30DaysTrend() {
     dataPoints.forEach(p => {
         ctx.beginPath();
         ctx.arc(x(p.x), y(p.y), 4, 0, Math.PI * 2);
-        ctx.fillStyle = p.y < 80 ? '#e74c3c' : p.y > 120 ? '#f39c12' : '#2ecc71';
+        ctx.fillStyle = isLightTheme()
+            ? (p.y < 80 ? '#c02717' : p.y > 120 ? '#8a5a00' : '#157a3a')
+            : (p.y < 80 ? '#e74c3c' : p.y > 120 ? '#f39c12' : '#2ecc71');
         ctx.fill();
     });
 
     // Day labels
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = chartInk(0.6);
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'center';
     [0, 7, 14, 21, 29].forEach(i => {
@@ -1572,15 +1565,15 @@ function renderSettings() {
             <div class="settings-meal-params">
                 <div class="input-group">
                     <label>Ratio</label>
-                    <input type="number" class="setting-ratio" data-meal="${m.id}" value="${p.ratio || m.defaultRatio}" inputmode="numeric">
+                    <input type="number" class="setting-ratio" data-meal="${m.id}" value="${p.ratio || m.defaultRatio}" inputmode="numeric" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>Sensibilité</label>
-                    <input type="number" class="setting-sensitivity" data-meal="${m.id}" value="${p.sensitivity || m.defaultSensitivity}" inputmode="numeric">
+                    <input type="number" class="setting-sensitivity" data-meal="${m.id}" value="${p.sensitivity || m.defaultSensitivity}" inputmode="numeric" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>Cible</label>
-                    <input type="number" class="setting-target" data-meal="${m.id}" value="${p.target || m.defaultTarget}" inputmode="numeric">
+                    <input type="number" class="setting-target" data-meal="${m.id}" value="${p.target || m.defaultTarget}" inputmode="numeric" autocomplete="off">
                 </div>
             </div>
         </div>`;
@@ -1590,6 +1583,7 @@ function renderSettings() {
     $('#settings-ns-token').value = settings.nightscoutToken || '';
     $('#settings-gh-token').value = settings.ghToken || '';
     $('#settings-gist-id').value = settings.gistId || '';
+    updateThemeButtons();
 }
 
 function saveSettingsFromUI() {
@@ -2133,6 +2127,7 @@ async function initApp() {
     registerServiceWorker();
     loadState();
     loadSettings();
+    applyTheme(settings.theme || 'dark');
     await loadFoods();
     updateDateDisplay();
     renderMeal();
@@ -2200,20 +2195,9 @@ async function initApp() {
         $('#settings-modal').classList.add('hidden');
     });
 
-    $('#btn-logout').addEventListener('click', () => {
-        sessionStorage.removeItem('followdia_auth');
-        location.reload();
-    });
-
-    $('#btn-change-password').addEventListener('click', () => {
-        const newPw = prompt('Nouveau mot de passe :');
-        if (newPw && newPw.length >= 4) {
-            hashPassword(newPw).then(hash => {
-                localStorage.setItem('followdia_pw_hash', hash);
-                toast('Mot de passe changé');
-            });
-        }
-    });
+    // Theme buttons (applied immediately, no need to press save)
+    $('#btn-theme-dark').addEventListener('click', () => setTheme('dark'));
+    $('#btn-theme-light').addEventListener('click', () => setTheme('light'));
 
     // Force update button
     $('#btn-force-update').addEventListener('click', () => checkForUpdate(false));
@@ -2281,8 +2265,8 @@ async function initApp() {
 
 // Boot
 document.addEventListener('DOMContentLoaded', () => {
-    initAuth();
-    if (sessionStorage.getItem('followdia_auth') === '1') {
-        showApp();
-    }
+    // Nettoyage des clés de l'ancienne authentification locale
+    localStorage.removeItem('followdia_pw_hash');
+    sessionStorage.removeItem('followdia_auth');
+    initApp();
 });

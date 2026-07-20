@@ -24,6 +24,30 @@
     --glucose-very-high: #e74c3c;
 }
 
+/* Thème clair à contraste élevé (lisible en plein soleil) */
+:root[data-theme="light"] {
+    --bg: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-alt: #eef1f6;
+    --bg-input: #ffffff;
+    --text: #10121a;
+    --text-dim: #3d4254;
+    --text-bright: #000000;
+    --accent: #1d3fd6;
+    --accent-light: #1731a8;
+    --success: #157a3a;
+    --warning: #8a5a00;
+    --danger: #c02717;
+    --danger-light: #a61b0c;
+    --border: #9aa0b0;
+    --border-light: #6f7688;
+    --shadow: 0 4px 20px rgba(0,0,0,0.15);
+    --glucose-low: #c02717;
+    --glucose-ok: #157a3a;
+    --glucose-high: #8a5a00;
+    --glucose-very-high: #c02717;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
@@ -44,51 +68,6 @@ input, select, button, textarea {
 .screen.active { display: block; }
 .hidden { display: none !important; }
 
-/* Auth */
-.auth-container {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-}
-
-.auth-logo {
-    text-align: center;
-    margin-bottom: 40px;
-}
-
-.logo-icon {
-    font-size: 64px;
-    margin-bottom: 12px;
-}
-
-.auth-logo h1 {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-bright);
-    letter-spacing: 2px;
-}
-
-.auth-logo p {
-    color: var(--text-dim);
-    margin-top: 8px;
-    font-size: 14px;
-}
-
-#auth-form, #setup-form {
-    width: 100%;
-    max-width: 320px;
-}
-
-.error-msg {
-    color: var(--danger-light);
-    font-size: 13px;
-    margin-top: 12px;
-    text-align: center;
-}
-
 /* Inputs */
 .input-group {
     margin-bottom: 12px;
@@ -102,7 +81,7 @@ input, select, button, textarea {
     font-weight: 500;
 }
 
-input[type="text"], input[type="number"], input[type="password"], input[type="url"], select {
+input[type="text"], input[type="number"], input[type="url"], select {
     width: 100%;
     padding: 12px 14px;
     background: var(--bg-input);
@@ -1151,3 +1130,40 @@ canvas {
 
 .bilan-row .bilan-label { color: var(--text-dim); }
 .bilan-row .bilan-value { font-weight: 600; }
+
+/* Theme toggle (settings) */
+.theme-toggle-row {
+    display: flex;
+    gap: 8px;
+}
+
+.theme-toggle-row .btn {
+    flex: 1;
+}
+
+.theme-toggle-row .btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+/* Light theme overrides for hardcoded dark colors */
+:root[data-theme="light"] .bilan-section {
+    background: #e8eefc;
+}
+
+:root[data-theme="light"] .totals-bar {
+    background: #e8eefc;
+}
+
+:root[data-theme="light"] .db-gauge-marker {
+    background: rgba(0,0,0,0.25);
+}
+
+:root[data-theme="light"] .db-postbolus-canvas {
+    background: rgba(0,0,0,0.04);
+}
+
+:root[data-theme="light"] .db-no-data {
+    background: rgba(0,0,0,0.04);
+}
