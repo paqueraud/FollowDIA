@@ -359,19 +359,80 @@ input[type="number"] {
 .param-display .value.negative { color: var(--danger-light); }
 .param-display .value.warning { color: var(--warning); }
 
-.correction-result {
-    background: var(--bg);
-    border-radius: var(--radius-sm);
-    padding: 12px;
-    text-align: center;
-    margin-top: 8px;
+/* Compact correction layout */
+.cc-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-end;
+    margin-bottom: 10px;
 }
 
-.correction-result .label { font-size: calc(11px * var(--fs, 1)); color: var(--text-dim); }
-.correction-result .value {
-    font-size: calc(24px * var(--fs, 1));
+.cc-field label {
+    display: block;
+    font-size: calc(12px * var(--fs, 1));
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.cc-glucose-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.cc-inputs input {
+    width: calc(70px * var(--fs, 1));
+    padding: 10px 6px;
+    text-align: center;
+}
+
+.cc-trend {
+    flex: 1;
+    min-width: 0;
+}
+
+.cc-trend .trend-selector {
+    flex-wrap: wrap;
+}
+
+.btn-cgm {
+    padding: 10px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--warning);
+    color: #241500;
+    font-weight: 700;
+    font-size: calc(13px * var(--fs, 1));
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.btn-cgm.cgm-ok {
+    background: var(--success);
+    color: #052e16;
+}
+
+:root[data-theme="light"] .btn-cgm { color: #ffffff; }
+:root[data-theme="light"] .btn-cgm.cgm-ok { color: #ffffff; }
+
+.cc-results {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+.cc-reco {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    font-size: calc(20px * var(--fs, 1));
     font-weight: 700;
     color: var(--accent-light);
+    text-align: center;
 }
 
 /* Food Table */
@@ -600,7 +661,7 @@ input[type="number"] {
 }
 
 .want-pct-section input {
-    width: 70px;
+    width: calc(90px * var(--fs, 1));
     text-align: center;
 }
 

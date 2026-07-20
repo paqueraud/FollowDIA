@@ -383,39 +383,38 @@ function renderMeal() {
     });
     dailyMiniHtml += '</div>';
 
-    // Correction section
+    // Correction section (compact layout)
     const correctionHtml = `
     <div class="correction-section">
         <h4>Bolus de correction</h4>
-        <div class="correction-row">
-            <div class="input-group">
-                <label>Glycémie (mg/dl)</label>
-                <div style="display:flex;gap:4px;align-items:center">
-                    <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" autocomplete="off" style="flex:1">
-                    <button type="button" id="btn-fetch-cgm" class="btn btn-secondary" style="padding:6px 10px;font-size:calc(12px * var(--fs, 1));white-space:nowrap" title="Récupérer depuis le capteur">CGM</button>
+        <div class="cc-inputs">
+            <div class="cc-field">
+                <label>Glycémie</label>
+                <div class="cc-glucose-row">
+                    <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" autocomplete="off">
+                    <button type="button" id="btn-fetch-cgm" class="btn-cgm" title="Récupérer depuis le capteur">CGM</button>
                 </div>
             </div>
-            <div class="input-group">
-                <label>Insuline active (UI)</label>
+            <div class="cc-field">
+                <label>Insuline active</label>
                 <input type="number" id="meal-active-insulin" value="${mealData.activeInsulin || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
-        </div>
-        <div class="input-group">
-            <label>Tendance</label>
-            <div class="trend-selector">
-                ${TRENDS.map(t => `<button class="trend-btn ${mealData.trend === t ? 'active' : ''}" data-trend="${t}">${t}</button>`).join('')}
+            <div class="cc-field cc-trend">
+                <label>Tendance</label>
+                <div class="trend-selector">
+                    ${TRENDS.map(t => `<button class="trend-btn ${mealData.trend === t ? 'active' : ''}" data-trend="${t}">${t}</button>`).join('')}
+                </div>
             </div>
         </div>
-        <div class="correction-result">
-            <span class="label">Correction recommandée</span>
-            <span class="value" id="correction-value">${totals.correction.safe > 0 ? round1(totals.correction.safe) + ' UI' : '-'}</span>
-        </div>
-        <div class="correction-row" style="margin-top:8px">
-            <div class="input-group">
+        <div class="cc-results">
+            <div class="cc-field">
+                <label>Correction recommandée</label>
+                <div class="cc-reco" id="correction-value">${totals.correction.safe > 0 ? round1(totals.correction.safe) + ' UI' : '-'}</div>
+            </div>
+            <div class="cc-field">
                 <label>Correction réellement faite (UI)</label>
                 <input type="number" id="meal-correction-given" value="${mealData.correctionGiven || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
-            <div></div>
         </div>
     </div>`;
 
@@ -1023,16 +1022,29 @@ function renderGlucoseCurrent() {
 
 const DIRECTION_TO_TREND = { 'DoubleUp': '↑↑', 'SingleUp': '↑', 'FortyFiveUp': '↗', 'Flat': '→', 'FortyFiveDown': '↘', 'SingleDown': '↓', 'DoubleDown': '↓↓' };
 
+const CGM_FRESH_MS = 5 * 60 * 1000;
+
 async function fillGlucoseFromCGM() {
-    // If no glucose data yet, fetch it first
-    if (glucoseData.length === 0) {
+    const btn = $('#btn-fetch-cgm');
+    if (btn) btn.classList.remove('cgm-ok');
+
+    // Fetch (or re-fetch if cached data is older than 5 min)
+    let latest = glucoseData[glucoseData.length - 1];
+    if (!latest || Date.now() - latest.date > CGM_FRESH_MS) {
         await fetchGlucose();
+        latest = glucoseData[glucoseData.length - 1];
     }
-    if (glucoseData.length === 0) {
+    if (!latest) {
         toast('Aucune glycémie disponible');
         return;
     }
-    const latest = glucoseData[glucoseData.length - 1];
+
+    const ageMin = Math.round((Date.now() - latest.date) / 60000);
+    if (Date.now() - latest.date > CGM_FRESH_MS) {
+        toast(`Glycémie actuelle impossible à récupérer (dernière mesure il y a ${ageMin} min)`);
+        return;
+    }
+
     const val = latest.sgv || latest.value;
     const trend = DIRECTION_TO_TREND[latest.direction] || latest.direction || '→';
 
@@ -1053,8 +1065,8 @@ async function fillGlucoseFromCGM() {
     refreshComputedValues();
     autoSave();
 
-    const mins = Math.round((Date.now() - latest.date) / 60000);
-    toast(`${val} mg/dl ${trend} (il y a ${mins} min)`);
+    if (btn) btn.classList.add('cgm-ok');
+    toast(`${val} mg/dl ${trend} (il y a ${ageMin} min)`);
 }
 
 function renderGlucoseChart() {
