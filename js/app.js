@@ -399,11 +399,11 @@ function renderMeal() {
                 <label>Insuline active</label>
                 <input type="number" id="meal-active-insulin" value="${mealData.activeInsulin || ''}" step="0.1" placeholder="0" inputmode="decimal" autocomplete="off">
             </div>
-            <div class="cc-field cc-trend">
-                <label>Tendance</label>
-                <div class="trend-selector">
-                    ${TRENDS.map(t => `<button class="trend-btn ${mealData.trend === t ? 'active' : ''}" data-trend="${t}">${t}</button>`).join('')}
-                </div>
+        </div>
+        <div class="cc-field cc-trend">
+            <label>Tendance</label>
+            <div class="trend-selector">
+                ${TRENDS.map(t => `<button class="trend-btn ${mealData.trend === t ? 'active' : ''}" data-trend="${t}">${t}</button>`).join('')}
             </div>
         </div>
         <div class="cc-results">
