@@ -232,6 +232,11 @@ function getDeletedFoods() {
     catch { return []; }
 }
 
+function setDeletedFoods(names) {
+    localStorage.setItem('followdia_deleted_foods', JSON.stringify(names));
+    localStorage.setItem('followdia_deleted_foods_ts', new Date().toISOString());
+}
+
 async function loadFoods() {
     const deleted = new Set(getDeletedFoods());
     try {
@@ -257,9 +262,10 @@ function deleteFoods(names) {
     // Blacklist (covers base foods from foods.json and re-imports via sync)
     const deleted = getDeletedFoods();
     lower.forEach(n => { if (!deleted.includes(n)) deleted.push(n); });
-    localStorage.setItem('followdia_deleted_foods', JSON.stringify(deleted));
+    setDeletedFoods(deleted);
     // Remove from in-memory list
     foods = foods.filter(f => !lower.includes(f.n.toLowerCase()));
+    scheduleSyncPush();
 }
 
 function findFood(name) {
@@ -1984,7 +1990,8 @@ async function syncToGist() {
                     if (remote.data) {
                         mergeRemoteData(remote.data);
                     }
-                    mergeCustomFoods(remote.customFoods);
+                    await mergeCustomFoods(remote.customFoods);
+                    await mergeDeletedFoods(remote.deletedFoods);
                 }
             }
 
@@ -2028,6 +2035,10 @@ function buildSyncPayload() {
         data: state,
         settings: { ...settings },
         customFoods: JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]'),
+        deletedFoods: {
+            names: getDeletedFoods(),
+            lastModified: localStorage.getItem('followdia_deleted_foods_ts') || null
+        },
         lastSync: new Date().toISOString()
     };
     delete payload.settings.ghToken;
@@ -2064,6 +2075,23 @@ function mergeRemoteData(remoteData) {
         }
     });
     saveState();
+}
+
+// Deleted-foods blacklist: most recent version wins entirely, so both
+// deletions and re-additions propagate across devices
+async function mergeDeletedFoods(remote) {
+    if (!remote || !Array.isArray(remote.names)) return;
+    const localTs = localStorage.getItem('followdia_deleted_foods_ts');
+    const remoteTs = remote.lastModified;
+    const adopt = remoteTs && (!localTs || new Date(remoteTs) > new Date(localTs));
+    if (!adopt) return;
+    const localNames = getDeletedFoods();
+    const same = localNames.length === remote.names.length && remote.names.every(n => localNames.includes(n));
+    localStorage.setItem('followdia_deleted_foods_ts', remoteTs);
+    if (same) return;
+    localStorage.setItem('followdia_deleted_foods', JSON.stringify(remote.names));
+    await loadFoods();
+    renderFoodList($('#food-search')?.value || '');
 }
 
 async function mergeCustomFoods(remoteFoods) {
@@ -2120,6 +2148,9 @@ async function syncFromGist(showToast) {
         if (payload.customFoods) {
             await mergeCustomFoods(payload.customFoods);
         }
+
+        // Merge deleted-foods blacklist (newest wins)
+        await mergeDeletedFoods(payload.deletedFoods);
 
         // Merge Nightscout settings if not set locally
         if (payload.settings) {
@@ -2368,8 +2399,10 @@ async function initApp() {
         customFoods.push({ n: name, g: carbs, s: sugar });
         localStorage.setItem('followdia_custom_foods', JSON.stringify(customFoods));
         // Un-blacklist if this food was previously deleted
-        const deleted = getDeletedFoods().filter(n => n !== name.toLowerCase());
-        localStorage.setItem('followdia_deleted_foods', JSON.stringify(deleted));
+        const deletedBefore = getDeletedFoods();
+        const deletedAfter = deletedBefore.filter(n => n !== name.toLowerCase());
+        if (deletedAfter.length !== deletedBefore.length) setDeletedFoods(deletedAfter);
+        scheduleSyncPush();
         foods.push({ n: name, g: carbs, s: sugar });
         foods.sort((a,b) => a.n.localeCompare(b.n, 'fr'));
         $('#food-modal').classList.add('hidden');
