@@ -227,16 +227,39 @@ function getMealData(date, mealId) {
 // ============================================================
 // FOOD DATABASE
 // ============================================================
+function getDeletedFoods() {
+    try { return JSON.parse(localStorage.getItem('followdia_deleted_foods') || '[]'); }
+    catch { return []; }
+}
+
 async function loadFoods() {
+    const deleted = new Set(getDeletedFoods());
     try {
         const userFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
         const resp = await fetch('foods.json');
         const baseFoods = await resp.json();
-        foods = [...baseFoods, ...userFoods].sort((a,b) => a.n.localeCompare(b.n, 'fr'));
+        foods = [...baseFoods, ...userFoods]
+            .filter(f => !deleted.has(f.n.toLowerCase()))
+            .sort((a,b) => a.n.localeCompare(b.n, 'fr'));
     } catch(e) {
         console.error('Failed to load foods:', e);
-        foods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
+        foods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]')
+            .filter(f => !deleted.has(f.n.toLowerCase()));
     }
+}
+
+function deleteFoods(names) {
+    const lower = names.map(n => n.toLowerCase());
+    // Remove from custom foods
+    const customFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]')
+        .filter(f => !lower.includes(f.n.toLowerCase()));
+    localStorage.setItem('followdia_custom_foods', JSON.stringify(customFoods));
+    // Blacklist (covers base foods from foods.json and re-imports via sync)
+    const deleted = getDeletedFoods();
+    lower.forEach(n => { if (!deleted.includes(n)) deleted.push(n); });
+    localStorage.setItem('followdia_deleted_foods', JSON.stringify(deleted));
+    // Remove from in-memory list
+    foods = foods.filter(f => !lower.includes(f.n.toLowerCase()));
 }
 
 function findFood(name) {
@@ -1582,14 +1605,21 @@ function render30DaysTrend() {
 // ============================================================
 // FOOD LIST (Foods Tab)
 // ============================================================
+let foodDeleteMode = false;
+const foodDeleteSelection = new Set();
+
 function renderFoodList(query) {
     const list = $('#food-list');
     if (!list) return;
     const filtered = query ? foods.filter(f => f.n.toLowerCase().includes(query.toLowerCase())) : foods;
     const display = filtered.slice(0, 100);
     list.innerHTML = display.map(f => {
-        const type = f.s > 0 ? (f.s/f.g >= 0.66 ? 'rapide' : f.s/f.g >= 0.33 ? 'moyen' : 'lent') : 'lent';
+        const esc = f.n.replace(/"/g, '&quot;');
+        const checkbox = foodDeleteMode
+            ? `<input type="checkbox" class="food-del-check" data-name="${esc}" ${foodDeleteSelection.has(f.n) ? 'checked' : ''}>`
+            : '';
         return `<div class="food-list-item">
+            ${checkbox}
             <span class="food-name">${f.n}</span>
             <span class="food-carbs">${f.g}g</span>
             <span class="food-sugar">${f.s}g sucre</span>
@@ -1597,6 +1627,35 @@ function renderFoodList(query) {
     }).join('');
     if (filtered.length > 100) {
         list.innerHTML += `<div style="padding:10px;text-align:center;color:var(--text-dim);font-size:calc(13px * var(--fs, 1))">${filtered.length - 100} autres résultats...</div>`;
+    }
+}
+
+function exitFoodDeleteMode() {
+    foodDeleteMode = false;
+    foodDeleteSelection.clear();
+    $('#btn-food-delete-mode')?.classList.remove('delete-armed');
+    renderFoodList($('#food-search')?.value || '');
+}
+
+function toggleFoodDeleteMode() {
+    if (!foodDeleteMode) {
+        foodDeleteMode = true;
+        foodDeleteSelection.clear();
+        $('#btn-food-delete-mode')?.classList.add('delete-armed');
+        renderFoodList($('#food-search')?.value || '');
+        toast('Cochez les aliments à supprimer puis appuyez à nouveau sur la poubelle');
+        return;
+    }
+    if (foodDeleteSelection.size === 0) {
+        exitFoodDeleteMode();
+        toast('Aucun aliment sélectionné');
+        return;
+    }
+    const n = foodDeleteSelection.size;
+    if (confirm(`Supprimer définitivement ${n} aliment${n > 1 ? 's' : ''} ?`)) {
+        deleteFoods([...foodDeleteSelection]);
+        exitFoodDeleteMode();
+        toast(`${n} aliment${n > 1 ? 's' : ''} supprimé${n > 1 ? 's' : ''}`);
     }
 }
 
@@ -2284,6 +2343,16 @@ async function initApp() {
     // Food search
     $('#food-search')?.addEventListener('input', e => renderFoodList(e.target.value));
 
+    // Food delete mode
+    $('#btn-food-delete-mode').addEventListener('click', toggleFoodDeleteMode);
+    $('#food-list').addEventListener('change', e => {
+        if (e.target.classList.contains('food-del-check')) {
+            const name = e.target.dataset.name;
+            if (e.target.checked) foodDeleteSelection.add(name);
+            else foodDeleteSelection.delete(name);
+        }
+    });
+
     // Add food modal
     $('#btn-add-food').addEventListener('click', () => $('#food-modal').classList.remove('hidden'));
     $$('#food-modal .modal-close, #food-modal .modal-overlay').forEach(el => {
@@ -2298,6 +2367,9 @@ async function initApp() {
         const customFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
         customFoods.push({ n: name, g: carbs, s: sugar });
         localStorage.setItem('followdia_custom_foods', JSON.stringify(customFoods));
+        // Un-blacklist if this food was previously deleted
+        const deleted = getDeletedFoods().filter(n => n !== name.toLowerCase());
+        localStorage.setItem('followdia_deleted_foods', JSON.stringify(deleted));
         foods.push({ n: name, g: carbs, s: sugar });
         foods.sort((a,b) => a.n.localeCompare(b.n, 'fr'));
         $('#food-modal').classList.add('hidden');
