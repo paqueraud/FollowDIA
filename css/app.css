@@ -54,6 +54,42 @@
 :root[data-fontsize="grand"] { --fs: 1.3; }
 :root[data-fontsize="tresgrand"] { --fs: 1.5; }
 
+/* Aux grandes tailles, on compense en réduisant marges et paddings
+   pour que tout rentre en largeur comme en taille petite */
+:root[data-fontsize="grand"] .tab-content,
+:root[data-fontsize="tresgrand"] .tab-content {
+    padding: 8px;
+    padding-bottom: 80px;
+}
+:root[data-fontsize="grand"] .card,
+:root[data-fontsize="tresgrand"] .card {
+    padding: 10px;
+}
+:root[data-fontsize="grand"] .correction-section,
+:root[data-fontsize="tresgrand"] .correction-section {
+    padding: 10px;
+}
+:root[data-fontsize="grand"] .bolus-input-section,
+:root[data-fontsize="tresgrand"] .bolus-input-section {
+    padding: 10px;
+}
+:root[data-fontsize="grand"] .bolus-step,
+:root[data-fontsize="tresgrand"] .bolus-step {
+    padding: 8px;
+}
+:root[data-fontsize="grand"] .food-entry,
+:root[data-fontsize="tresgrand"] .food-entry {
+    padding: 8px;
+}
+:root[data-fontsize="grand"] .bilan-section,
+:root[data-fontsize="tresgrand"] .bilan-section {
+    padding: 10px;
+}
+:root[data-fontsize="grand"] .btn-cgm,
+:root[data-fontsize="tresgrand"] .btn-cgm {
+    padding: 10px 6px;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
@@ -363,7 +399,7 @@ input[type="number"] {
 .cc-inputs {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     align-items: flex-end;
     margin-bottom: 10px;
 }
@@ -378,22 +414,19 @@ input[type="number"] {
 
 .cc-glucose-row {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     align-items: center;
 }
 
+/* Width grows only slightly with the font factor so the row never wraps */
 .cc-inputs input {
-    width: calc(70px * var(--fs, 1));
-    padding: 10px 6px;
+    width: calc(50px + 16px * var(--fs, 1));
+    padding: 10px 4px;
     text-align: center;
 }
 
 .cc-trend {
     margin-bottom: 10px;
-}
-
-.cc-trend .trend-selector {
-    flex-wrap: wrap;
 }
 
 .btn-cgm {
@@ -670,15 +703,19 @@ input[type="number"] {
     font-weight: 600;
 }
 
-/* Trend selector row */
+/* Trend selector row — always a single line: buttons share the width,
+   only the arrow glyphs scale with the font factor */
 .trend-selector {
     display: flex;
     gap: 4px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .trend-btn {
-    padding: 8px 12px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 0;
+    text-align: center;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 6px;
