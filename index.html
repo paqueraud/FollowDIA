@@ -79,7 +79,7 @@
                     <span id="glucose-trend" class="glucose-trend">→</span>
                     <span id="glucose-time" class="glucose-time"></span>
                 </div>
-                <div id="glucose-status" style="font-size:13px;color:var(--text-dim);text-align:center;"></div>
+                <div id="glucose-status" style="font-size:calc(13px * var(--fs, 1));color:var(--text-dim);text-align:center;"></div>
                 <div class="glucose-chart-container">
                     <canvas id="glucose-chart"></canvas>
                 </div>
@@ -132,6 +132,13 @@
                         <button id="btn-theme-dark" class="btn btn-secondary">🌙 Sombre</button>
                         <button id="btn-theme-light" class="btn btn-secondary">☀️ Clair (plein soleil)</button>
                     </div>
+                    <h4>Taille du texte</h4>
+                    <div class="font-size-row">
+                        <button class="btn btn-secondary fs-btn" data-fs="petit">Petit</button>
+                        <button class="btn btn-secondary fs-btn" data-fs="moyen">Moyen</button>
+                        <button class="btn btn-secondary fs-btn" data-fs="grand">Grand</button>
+                        <button class="btn btn-secondary fs-btn" data-fs="tresgrand">Très grand</button>
+                    </div>
                     <h4>Nightscout / XDrip</h4>
                     <div class="input-group">
                         <label>URL Nightscout</label>
@@ -159,7 +166,7 @@
                     </div>
                     <h4>Application</h4>
                     <button id="btn-force-update" class="btn btn-secondary">Forcer la mise à jour</button>
-                    <p id="app-version-display" style="margin-top:8px;font-size:11px;color:var(--text-dim)"></p>
+                    <p id="app-version-display" style="margin-top:8px;font-size:calc(11px * var(--fs, 1));color:var(--text-dim)"></p>
                 </div>
                 <div class="modal-footer">
                     <button id="btn-save-settings" class="btn btn-primary">Sauvegarder</button>
@@ -209,7 +216,7 @@
                 <div id="qr-scanner-container" class="hidden">
                     <video id="qr-video" playsinline style="width:100%;max-height:60vh;border-radius:8px;background:#000"></video>
                 </div>
-                <p id="qr-message" style="margin-top:12px;font-size:13px;color:var(--text-dim)"></p>
+                <p id="qr-message" style="margin-top:12px;font-size:calc(13px * var(--fs, 1));color:var(--text-dim)"></p>
             </div>
         </div>
     </div>

@@ -111,10 +111,46 @@ function setTheme(theme) {
     if ($('#tab-dashboard')?.classList.contains('active')) renderDashboard();
 }
 
-// Ink color for canvas text/grids, readable on both themes
+// ============================================================
+// FONT SIZE (global)
+// ============================================================
+const FONT_SIZES = ['petit', 'moyen', 'grand', 'tresgrand'];
+const FONT_SCALES = { petit: 1, moyen: 1.15, grand: 1.3, tresgrand: 1.5 };
+
+function fontScale() {
+    return FONT_SCALES[document.documentElement.dataset.fontsize] || 1;
+}
+
+function applyFontSize(size) {
+    document.documentElement.dataset.fontsize = FONT_SIZES.includes(size) ? size : 'petit';
+    updateFontSizeButtons();
+}
+
+function updateFontSizeButtons() {
+    const current = document.documentElement.dataset.fontsize || 'petit';
+    $$('.fs-btn').forEach(b => b.classList.toggle('active', b.dataset.fs === current));
+}
+
+function setFontSize(size) {
+    applyFontSize(size);
+    settings.fontSize = size;
+    saveSettings();
+    // Re-draw canvases so their label sizes match
+    renderGlucoseChart();
+    if ($('#tab-dashboard')?.classList.contains('active')) renderDashboard();
+}
+
+// Scaled canvas font
+function chartFont(px) {
+    return `${Math.round(px * fontScale())}px sans-serif`;
+}
+
+// Ink color for canvas text/grids, readable on both themes.
+// Low alpha = grid lines; higher alpha = text, drawn fully opaque for contrast.
 function chartInk(alpha) {
-    if (isLightTheme()) return `rgba(10,10,26,${Math.min(1, alpha + 0.25)})`;
-    return `rgba(255,255,255,${alpha})`;
+    const opacity = alpha >= 0.3 ? 1 : alpha;
+    if (isLightTheme()) return `rgba(0,0,0,${opacity})`;
+    return `rgba(255,255,255,${opacity})`;
 }
 
 function chartLineColor() {
@@ -356,7 +392,7 @@ function renderMeal() {
                 <label>Glycémie (mg/dl)</label>
                 <div style="display:flex;gap:4px;align-items:center">
                     <input type="number" id="meal-glucose" value="${mealData.glucose || ''}" placeholder="--" inputmode="numeric" autocomplete="off" style="flex:1">
-                    <button type="button" id="btn-fetch-cgm" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;white-space:nowrap" title="Récupérer depuis le capteur">CGM</button>
+                    <button type="button" id="btn-fetch-cgm" class="btn btn-secondary" style="padding:6px 10px;font-size:calc(12px * var(--fs, 1));white-space:nowrap" title="Récupérer depuis le capteur">CGM</button>
                 </div>
             </div>
             <div class="input-group">
@@ -437,7 +473,7 @@ function renderMeal() {
     <div class="bolus-input-section">
         <h4>Saisie des bolus repas</h4>
         <div class="bolus-step">
-            <div class="bolus-step-label">1er bolus (début de repas)${mealData.bolusTimestamp ? ` <input type="time" id="bolus-time" value="${new Date(mealData.bolusTimestamp).getHours().toString().padStart(2,'0')}:${new Date(mealData.bolusTimestamp).getMinutes().toString().padStart(2,'0')}" style="margin-left:8px;padding:2px 4px;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;width:80px">` : ''}</div>
+            <div class="bolus-step-label">1er bolus (début de repas)${mealData.bolusTimestamp ? ` <input type="time" id="bolus-time" value="${new Date(mealData.bolusTimestamp).getHours().toString().padStart(2,'0')}:${new Date(mealData.bolusTimestamp).getMinutes().toString().padStart(2,'0')}" style="margin-left:8px;padding:2px 4px;font-size:calc(12px * var(--fs, 1));background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;width:80px">` : ''}</div>
             <div class="bolus-step-row">
                 <div class="input-group">
                     <label>Glucides (g)</label>
@@ -1077,14 +1113,14 @@ function renderGlucoseChart() {
         ctx.lineTo(W - padding.right, y(v));
         ctx.stroke();
         ctx.fillStyle = chartInk(0.6);
-        ctx.font = '12px sans-serif';
+        ctx.font = chartFont(12);
         ctx.textAlign = 'right';
         ctx.fillText(v, padding.left - 4, y(v) + 3);
     });
 
     // Time labels — adaptive interval
     ctx.fillStyle = chartInk(0.6);
-    ctx.font = '12px sans-serif';
+    ctx.font = chartFont(12);
     ctx.textAlign = 'center';
     const labelIntervalMs = _glucoseViewHours <= 2 ? 1800000 : _glucoseViewHours <= 6 ? 3600000 : 7200000;
     const firstLabel = Math.ceil(viewStart / labelIntervalMs) * labelIntervalMs;
@@ -1123,7 +1159,7 @@ function renderGlucoseChart() {
 
     // Zoom hint
     ctx.fillStyle = chartInk(0.5);
-    ctx.font = '11px sans-serif';
+    ctx.font = chartFont(11);
     ctx.textAlign = 'right';
     ctx.fillText(`${_glucoseViewHours <= 1 ? Math.round(_glucoseViewHours * 60) + ' min' : round1(_glucoseViewHours) + 'h'}`, W - padding.right, padding.top - 6);
 }
@@ -1282,7 +1318,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
 
     if (!bolusTime) {
         ctx.fillStyle = chartInk(0.4);
-        ctx.font = '11px sans-serif';
+        ctx.font = chartFont(11);
         ctx.textAlign = 'center';
         ctx.fillText('Pas de bolus enregistré', W / 2, H / 2 + 4);
         return;
@@ -1295,7 +1331,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
 
     if (points.length === 0) {
         ctx.fillStyle = chartInk(0.4);
-        ctx.font = '11px sans-serif';
+        ctx.font = chartFont(11);
         ctx.textAlign = 'center';
         ctx.fillText('Pas de glycémie disponible', W / 2, H / 2 + 4);
         return;
@@ -1336,7 +1372,7 @@ function drawPostBolusChart(canvas, mealData, mealId) {
 
     // Y-axis labels
     ctx.fillStyle = chartInk(0.6);
-    ctx.font = '11px sans-serif';
+    ctx.font = chartFont(11);
     ctx.textAlign = 'right';
     [70, 150, 250].forEach(v => {
         if (v >= minVal && v <= maxVal) {
@@ -1440,7 +1476,7 @@ function render30DaysTrend() {
 
     if (dataPoints.length === 0) {
         ctx.fillStyle = chartInk(0.6);
-        ctx.font = '14px sans-serif';
+        ctx.font = chartFont(14);
         ctx.textAlign = 'center';
         ctx.fillText('Pas de données sur 30 jours', W/2, H/2);
         return;
@@ -1462,7 +1498,7 @@ function render30DaysTrend() {
 
     // Grid
     ctx.fillStyle = chartInk(0.6);
-    ctx.font = '12px sans-serif';
+    ctx.font = chartFont(12);
     ctx.textAlign = 'right';
     [50, 100, 150].forEach(v => {
         if (v <= maxPct) ctx.fillText(v + '%', padding.left - 4, y(v) + 3);
@@ -1490,7 +1526,7 @@ function render30DaysTrend() {
 
     // Day labels
     ctx.fillStyle = chartInk(0.6);
-    ctx.font = '11px sans-serif';
+    ctx.font = chartFont(11);
     ctx.textAlign = 'center';
     [0, 7, 14, 21, 29].forEach(i => {
         const date = days[i];
@@ -1548,7 +1584,7 @@ function renderFoodList(query) {
         </div>`;
     }).join('');
     if (filtered.length > 100) {
-        list.innerHTML += `<div style="padding:10px;text-align:center;color:var(--text-dim);font-size:13px">${filtered.length - 100} autres résultats...</div>`;
+        list.innerHTML += `<div style="padding:10px;text-align:center;color:var(--text-dim);font-size:calc(13px * var(--fs, 1))">${filtered.length - 100} autres résultats...</div>`;
     }
 }
 
@@ -1584,6 +1620,7 @@ function renderSettings() {
     $('#settings-gh-token').value = settings.ghToken || '';
     $('#settings-gist-id').value = settings.gistId || '';
     updateThemeButtons();
+    updateFontSizeButtons();
 }
 
 function saveSettingsFromUI() {
@@ -2128,6 +2165,7 @@ async function initApp() {
     loadState();
     loadSettings();
     applyTheme(settings.theme || 'dark');
+    applyFontSize(settings.fontSize || 'petit');
     await loadFoods();
     updateDateDisplay();
     renderMeal();
@@ -2198,6 +2236,9 @@ async function initApp() {
     // Theme buttons (applied immediately, no need to press save)
     $('#btn-theme-dark').addEventListener('click', () => setTheme('dark'));
     $('#btn-theme-light').addEventListener('click', () => setTheme('light'));
+
+    // Font size buttons (applied immediately)
+    $$('.fs-btn').forEach(b => b.addEventListener('click', () => setFontSize(b.dataset.fs)));
 
     // Force update button
     $('#btn-force-update').addEventListener('click', () => checkForUpdate(false));
