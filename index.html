@@ -77,11 +77,18 @@
                         <span id="glucose-unit">mg/dl</span>
                     </div>
                     <span id="glucose-trend" class="glucose-trend">→</span>
-                    <span id="glucose-time" class="glucose-time"></span>
+                    <div class="glucose-meta">
+                        <span id="glucose-time" class="glucose-time"></span>
+                        <span id="glucose-delta" class="glucose-delta"></span>
+                    </div>
                 </div>
                 <div id="glucose-status" style="font-size:calc(13px * var(--fs, 1));color:var(--text-dim);text-align:center;"></div>
                 <div class="glucose-chart-container">
                     <canvas id="glucose-chart"></canvas>
+                </div>
+                <div class="deriv-section">
+                    <h4>Dérivée de la glycémie (mg/dl/min)</h4>
+                    <canvas id="glucose-deriv-chart"></canvas>
                 </div>
             </div>
 

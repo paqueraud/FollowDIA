@@ -817,10 +817,45 @@ input[type="number"] {
     font-size: calc(28px * var(--fs, 1));
 }
 
+.glucose-meta {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
 .glucose-time {
     font-size: calc(12px * var(--fs, 1));
     color: var(--text-dim);
-    margin-left: auto;
+}
+
+.glucose-delta {
+    font-size: calc(14px * var(--fs, 1));
+    font-weight: 700;
+}
+
+/* Derivative chart */
+.deriv-section {
+    margin: 8px 12px 12px;
+}
+
+.deriv-section h4 {
+    font-size: calc(13px * var(--fs, 1));
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+
+.deriv-section canvas {
+    display: block;
+    border-radius: var(--radius-sm);
+    background: rgba(0,0,0,0.15);
+    touch-action: pan-y;
+}
+
+:root[data-theme="light"] .deriv-section canvas {
+    background: rgba(0,0,0,0.04);
 }
 
 /* Dashboard */

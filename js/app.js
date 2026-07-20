@@ -30,6 +30,9 @@ let _glucosePinchDist0 = null;
 let _glucoseHours0 = null;
 let _glucosePanStartX = null;
 let _glucoseViewEnd0 = null;
+let _glucoseSelPoint = null;  // selected point on the glucose chart
+let _glucoseChartView = null; // px<->time mapping of the last chart render
+let _glucoseDidPan = false;   // suppress the click that may follow a pan
 
 // ============================================================
 // UTILS
@@ -1044,6 +1047,21 @@ function renderGlucoseCurrent() {
     const mins = Math.round((Date.now() - latest.date) / 60000);
     $('#glucose-time').textContent = mins < 60 ? `il y a ${mins} min` : `il y a ${Math.round(mins/60)}h`;
 
+    // Delta between the last two readings
+    const deltaEl = $('#glucose-delta');
+    if (deltaEl) {
+        const prev = glucoseData[glucoseData.length - 2];
+        const vLatest = latest.sgv || latest.value;
+        const vPrev = prev ? (prev.sgv || prev.value) : null;
+        if (vPrev > 0 && vLatest > 0) {
+            const d = vLatest - vPrev;
+            deltaEl.textContent = `Δ ${d > 0 ? '+' : ''}${d} mg/dl`;
+            deltaEl.style.color = d >= 10 ? 'var(--warning)' : d <= -10 ? 'var(--danger)' : 'var(--text-dim)';
+        } else {
+            deltaEl.textContent = '';
+        }
+    }
+
     const val = latest.sgv || latest.value;
     const valEl = $('#glucose-val');
     valEl.style.color = val < 70 ? 'var(--glucose-low)' : val < 180 ? 'var(--glucose-ok)' : val < 250 ? 'var(--glucose-high)' : 'var(--glucose-very-high)';
@@ -1128,6 +1146,9 @@ function renderGlucoseChart() {
     const viewEnd = _glucoseViewEnd != null ? _glucoseViewEnd : dataMaxTime;
     const viewStart = viewEnd - windowMs;
 
+    // Store the px<->time mapping for tap-to-select
+    _glucoseChartView = { viewStart, viewEnd, left: padding.left, chartW };
+
     // Filter visible data
     const visible = glucoseData.filter(d => d.date >= viewStart && d.date <= viewEnd);
 
@@ -1198,11 +1219,172 @@ function renderGlucoseChart() {
     });
     ctx.restore();
 
+    // Selected point: crosshair + label with time and value
+    if (_glucoseSelPoint && _glucoseSelPoint.date >= viewStart && _glucoseSelPoint.date <= viewEnd) {
+        const sv = _glucoseSelPoint.sgv || _glucoseSelPoint.value;
+        if (sv > 0) {
+            const sx = x(_glucoseSelPoint.date);
+            const sy = y(sv);
+            // Vertical line
+            ctx.strokeStyle = chartInk(0.4);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(sx, padding.top);
+            ctx.lineTo(sx, padding.top + chartH);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Highlight circle
+            ctx.beginPath();
+            ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+            ctx.strokeStyle = chartLineColor();
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Label box
+            const d = new Date(_glucoseSelPoint.date);
+            const label = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} — ${sv} mg/dl`;
+            const fontPx = Math.round(13 * fontScale());
+            ctx.font = `bold ${fontPx}px sans-serif`;
+            const tw = ctx.measureText(label).width;
+            const bw = tw + 16;
+            const bh = fontPx + 12;
+            const bx = Math.max(padding.left, Math.min(W - padding.right - bw, sx - bw / 2));
+            const by = padding.top + 4;
+            ctx.fillStyle = isLightTheme() ? 'rgba(255,255,255,0.95)' : 'rgba(26,26,46,0.95)';
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = chartLineColor();
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, bw, bh);
+            ctx.fillStyle = chartInk(1);
+            ctx.textAlign = 'center';
+            ctx.fillText(label, bx + bw / 2, by + bh - 8);
+        }
+    }
+
     // Zoom hint
     ctx.fillStyle = chartInk(0.5);
     ctx.font = chartFont(11);
     ctx.textAlign = 'right';
     ctx.fillText(`${_glucoseViewHours <= 1 ? Math.round(_glucoseViewHours * 60) + ' min' : round1(_glucoseViewHours) + 'h'}`, W - padding.right, padding.top - 6);
+
+    // Derivative chart follows the same time window
+    renderGlucoseDerivChart();
+}
+
+// Derivative of glucose (mg/dl per minute), smoothed over 3 points,
+// sharing the main chart's time window (zoom/pan follow along)
+function renderGlucoseDerivChart() {
+    const canvas = $('#glucose-deriv-chart');
+    if (!canvas || glucoseData.length < 2) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.parentElement.offsetWidth || window.innerWidth;
+    const H = 150;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const padding = { top: 10, right: 10, bottom: 22, left: 40 };
+    const chartW = W - padding.left - padding.right;
+    const chartH = H - padding.top - padding.bottom;
+
+    // Raw derivative between consecutive readings
+    const der = [];
+    for (let i = 1; i < glucoseData.length; i++) {
+        const a = glucoseData[i - 1], b = glucoseData[i];
+        const va = a.sgv || a.value, vb = b.sgv || b.value;
+        const dtMin = (b.date - a.date) / 60000;
+        if (va > 0 && vb > 0 && dtMin > 0 && dtMin <= 20) {
+            der.push({ date: (a.date + b.date) / 2, v: (vb - va) / dtMin });
+        }
+    }
+    if (der.length === 0) return;
+
+    // 3-point moving average to tame sensor noise
+    const smooth = der.map((p, i) => {
+        const s = der.slice(Math.max(0, i - 1), i + 2);
+        return { date: p.date, v: s.reduce((t, q) => t + q.v, 0) / s.length };
+    });
+
+    // Same time window as the main chart
+    const dataMaxTime = glucoseData[glucoseData.length - 1].date;
+    const windowMs = _glucoseViewHours * 3600000;
+    const viewEnd = _glucoseViewEnd != null ? _glucoseViewEnd : dataMaxTime;
+    const viewStart = viewEnd - windowMs;
+    const visible = smooth.filter(p => p.date >= viewStart && p.date <= viewEnd);
+
+    // Symmetric Y range
+    const maxAbs = Math.max(1.5, ...visible.map(p => Math.abs(p.v)));
+    const yMax = Math.min(6, Math.ceil(maxAbs * 2) / 2);
+
+    function x(time) { return padding.left + ((time - viewStart) / windowMs) * chartW; }
+    function y(val) { return padding.top + chartH / 2 - (val / yMax) * (chartH / 2); }
+
+    // Grid lines and labels
+    ctx.font = chartFont(11);
+    ctx.textAlign = 'right';
+    [-2, -1, 1, 2].forEach(v => {
+        if (Math.abs(v) > yMax) return;
+        ctx.strokeStyle = chartInk(0.07);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y(v));
+        ctx.lineTo(W - padding.right, y(v));
+        ctx.stroke();
+        ctx.fillStyle = chartInk(0.6);
+        ctx.fillText((v > 0 ? '+' : '') + v, padding.left - 4, y(v) + 3);
+    });
+
+    // Zero line
+    ctx.strokeStyle = chartInk(0.25);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y(0));
+    ctx.lineTo(W - padding.right, y(0));
+    ctx.stroke();
+    ctx.fillStyle = chartInk(0.6);
+    ctx.fillText('0', padding.left - 4, y(0) + 3);
+
+    // Time labels (same interval logic as the main chart)
+    ctx.textAlign = 'center';
+    const labelIntervalMs = _glucoseViewHours <= 2 ? 1800000 : _glucoseViewHours <= 6 ? 3600000 : 7200000;
+    const firstLabel = Math.ceil(viewStart / labelIntervalMs) * labelIntervalMs;
+    ctx.fillStyle = chartInk(0.6);
+    for (let t = firstLabel; t <= viewEnd; t += labelIntervalMs) {
+        const d = new Date(t);
+        ctx.fillText(`${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`, x(t), H - 5);
+    }
+
+    // Line
+    ctx.save();
+    ctx.rect(padding.left, padding.top, chartW, chartH);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.strokeStyle = chartLineColor();
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    let started = false;
+    smooth.forEach(p => {
+        const py = Math.max(padding.top, Math.min(padding.top + chartH, y(p.v)));
+        if (!started) { ctx.moveTo(x(p.date), py); started = true; }
+        else ctx.lineTo(x(p.date), py);
+    });
+    ctx.stroke();
+
+    // Dots, colored by rate of change
+    visible.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(x(p.date), Math.max(padding.top, Math.min(padding.top + chartH, y(p.v))), 2, 0, Math.PI * 2);
+        const light = isLightTheme();
+        ctx.fillStyle = p.v >= 2 ? (light ? '#8a5a00' : '#f39c12')
+            : p.v <= -2 ? (light ? '#c02717' : '#e74c3c')
+            : (light ? '#157a3a' : '#2ecc71');
+        ctx.fill();
+    });
+    ctx.restore();
 }
 
 function _initGlucoseChartGestures() {
@@ -1224,6 +1406,7 @@ function _initGlucoseChartGestures() {
         } else if (e.touches.length === 1) {
             _glucosePanStartX = e.touches[0].clientX;
             _glucoseViewEnd0 = _glucoseViewEnd != null ? _glucoseViewEnd : glucoseData[glucoseData.length - 1]?.date || Date.now();
+            _glucoseDidPan = false;
         }
     }, { passive: false });
 
@@ -1237,6 +1420,7 @@ function _initGlucoseChartGestures() {
         } else if (e.touches.length === 1 && _glucosePanStartX != null) {
             e.preventDefault();
             const dx = e.touches[0].clientX - _glucosePanStartX;
+            if (Math.abs(dx) > 8) _glucoseDidPan = true;
             const rect = canvas.getBoundingClientRect();
             const pxPerMs = rect.width / (_glucoseViewHours * 3600000);
             const dtMs = -dx / pxPerMs;
@@ -1259,6 +1443,29 @@ function _initGlucoseChartGestures() {
         _glucoseViewHours = Math.max(0.5, Math.min(dataTimeRange(), _glucoseViewHours * factor));
         renderGlucoseChart();
     }, { passive: false });
+
+    // Tap/click to select a point (shows its time and value)
+    canvas.addEventListener('click', e => {
+        if (_glucoseDidPan) { _glucoseDidPan = false; return; }
+        if (!_glucoseChartView || glucoseData.length === 0) return;
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const { viewStart, viewEnd, left, chartW } = _glucoseChartView;
+        const t = viewStart + ((px - left) / chartW) * (viewEnd - viewStart);
+        let best = null, bestDt = Infinity;
+        glucoseData.forEach(p => {
+            if (p.date < viewStart || p.date > viewEnd) return;
+            const dt = Math.abs(p.date - t);
+            if (dt < bestDt) { bestDt = dt; best = p; }
+        });
+        const pxPerMs = chartW / (viewEnd - viewStart);
+        if (best && bestDt * pxPerMs <= 30) {
+            _glucoseSelPoint = (best === _glucoseSelPoint) ? null : best;
+        } else {
+            _glucoseSelPoint = null;
+        }
+        renderGlucoseChart();
+    });
 }
 
 // ============================================================
