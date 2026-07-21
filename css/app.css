@@ -1231,6 +1231,36 @@ canvas {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Fatal error banner */
+#fatal-error-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 3000;
+    background: var(--bg-card);
+    border-top: 2px solid var(--danger);
+    padding: 12px 16px;
+}
+
+#fatal-error-bar .fatal-msg {
+    font-size: calc(13px * var(--fs, 1));
+    color: var(--danger-light);
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+
+#fatal-error-bar .fatal-actions {
+    display: flex;
+    gap: 8px;
+}
+
+#fatal-error-bar .fatal-actions .btn {
+    flex: 1;
+    padding: 10px 6px;
+    font-size: calc(13px * var(--fs, 1));
+}
+
 /* Toast */
 .toast {
     position: fixed;

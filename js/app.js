@@ -175,6 +175,50 @@ function loadState() {
     try {
         state = JSON.parse(localStorage.getItem('followdia_data') || '{}');
     } catch { state = {}; }
+    sanitizeState();
+}
+
+// Coerce a value to a finite number, or null
+function toNum(v) {
+    if (v == null || v === '') return null;
+    const n = parseFloat(v);
+    return isFinite(n) ? n : null;
+}
+
+// Repair a meal entry coming from storage or from the Gist so that the
+// render code can never crash on an unexpected shape
+function sanitizeMeal(md) {
+    if (!md || typeof md !== 'object' || Array.isArray(md)) return null;
+    if (!Array.isArray(md.foods)) md.foods = [];
+    md.foods = md.foods
+        .filter(f => f && typeof f === 'object')
+        .map(f => ({
+            name: typeof f.name === 'string' ? f.name : '',
+            massServed: toNum(f.massServed),
+            massRemaining: toNum(f.massRemaining)
+        }));
+    if (md.foods.length === 0) md.foods.push({ name: '', massServed: null, massRemaining: null });
+    if (typeof md.trend !== 'string') md.trend = '→';
+    return md;
+}
+
+// Walk the whole state and drop/repair anything malformed. Corrupted
+// entries (e.g. from an old sync payload) used to crash renderMeal at
+// startup, leaving a blank screen until browser data was cleared.
+function sanitizeState() {
+    if (!state || typeof state !== 'object' || Array.isArray(state)) { state = {}; return; }
+    Object.keys(state).forEach(date => {
+        const day = state[date];
+        if (!day || typeof day !== 'object' || Array.isArray(day) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            delete state[date];
+            return;
+        }
+        Object.keys(day).forEach(meal => {
+            const cleaned = sanitizeMeal(day[meal]);
+            if (cleaned) day[meal] = cleaned;
+            else delete day[meal];
+        });
+    });
 }
 
 function saveState() {
@@ -220,8 +264,8 @@ function getMealData(date, mealId) {
             sensorCathChange: ''
         };
     }
-    // Ensure at least one food entry exists
-    if (!state[date][mealId].foods || state[date][mealId].foods.length === 0) {
+    // Ensure at least one food entry exists (and that foods is an array)
+    if (!Array.isArray(state[date][mealId].foods) || state[date][mealId].foods.length === 0) {
         state[date][mealId].foods = [{ name: '', massServed: null, massRemaining: null }];
     }
     return state[date][mealId];
@@ -230,9 +274,23 @@ function getMealData(date, mealId) {
 // ============================================================
 // FOOD DATABASE
 // ============================================================
+// A food entry is only usable if it has a non-empty string name
+function isValidFood(f) {
+    return f && typeof f === 'object' && typeof f.n === 'string' && f.n.length > 0;
+}
+
+function getCustomFoods() {
+    try {
+        const arr = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
+        return Array.isArray(arr) ? arr.filter(isValidFood) : [];
+    } catch { return []; }
+}
+
 function getDeletedFoods() {
-    try { return JSON.parse(localStorage.getItem('followdia_deleted_foods') || '[]'); }
-    catch { return []; }
+    try {
+        const arr = JSON.parse(localStorage.getItem('followdia_deleted_foods') || '[]');
+        return Array.isArray(arr) ? arr.filter(n => typeof n === 'string') : [];
+    } catch { return []; }
 }
 
 function setDeletedFoods(names) {
@@ -242,25 +300,24 @@ function setDeletedFoods(names) {
 
 async function loadFoods() {
     const deleted = new Set(getDeletedFoods());
+    const userFoods = getCustomFoods();
+    let baseFoods = [];
     try {
-        const userFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
         const resp = await fetch('foods.json');
-        const baseFoods = await resp.json();
-        foods = [...baseFoods, ...userFoods]
-            .filter(f => !deleted.has(f.n.toLowerCase()))
-            .sort((a,b) => a.n.localeCompare(b.n, 'fr'));
+        const parsed = await resp.json();
+        if (Array.isArray(parsed)) baseFoods = parsed.filter(isValidFood);
     } catch(e) {
         console.error('Failed to load foods:', e);
-        foods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]')
-            .filter(f => !deleted.has(f.n.toLowerCase()));
     }
+    foods = [...baseFoods, ...userFoods]
+        .filter(f => !deleted.has(f.n.toLowerCase()))
+        .sort((a,b) => a.n.localeCompare(b.n, 'fr'));
 }
 
 function deleteFoods(names) {
     const lower = names.map(n => n.toLowerCase());
     // Remove from custom foods
-    const customFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]')
-        .filter(f => !lower.includes(f.n.toLowerCase()));
+    const customFoods = getCustomFoods().filter(f => !lower.includes(f.n.toLowerCase()));
     localStorage.setItem('followdia_custom_foods', JSON.stringify(customFoods));
     // Blacklist (covers base foods from foods.json and re-imports via sync)
     const deleted = getDeletedFoods();
@@ -2258,6 +2315,7 @@ function getMealTimestamp(mealData) {
 }
 
 function mergeRemoteData(remoteData) {
+    if (!remoteData || typeof remoteData !== 'object' || Array.isArray(remoteData)) return;
     Object.keys(remoteData).forEach(date => {
         if (!state[date]) {
             state[date] = remoteData[date];
@@ -2281,6 +2339,7 @@ function mergeRemoteData(remoteData) {
             });
         }
     });
+    sanitizeState();
     saveState();
 }
 
@@ -2302,10 +2361,12 @@ async function mergeDeletedFoods(remote) {
 }
 
 async function mergeCustomFoods(remoteFoods) {
-    if (!remoteFoods || remoteFoods.length === 0) return;
-    const localFoods = JSON.parse(localStorage.getItem('followdia_custom_foods') || '[]');
+    if (!Array.isArray(remoteFoods) || remoteFoods.length === 0) return;
+    const validRemote = remoteFoods.filter(isValidFood);
+    if (validRemote.length === 0) return;
+    const localFoods = getCustomFoods();
     const localNames = new Set(localFoods.map(f => f.n.toLowerCase()));
-    const newFoods = remoteFoods.filter(f => !localNames.has(f.n.toLowerCase()));
+    const newFoods = validRemote.filter(f => !localNames.has(f.n.toLowerCase()));
     if (newFoods.length > 0) {
         const merged = [...localFoods, ...newFoods];
         localStorage.setItem('followdia_custom_foods', JSON.stringify(merged));
@@ -2627,6 +2688,43 @@ async function initApp() {
     });
 
 }
+
+// ============================================================
+// FAILSAFE — never leave a silent blank screen again: uncaught
+// errors show a banner with a local-data reset button
+// ============================================================
+function showFatalError(msg) {
+    let el = document.getElementById('fatal-error-bar');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'fatal-error-bar';
+        el.innerHTML = `
+            <div class="fatal-msg"></div>
+            <div class="fatal-actions">
+                <button id="fatal-reload" class="btn btn-secondary">Recharger</button>
+                <button id="fatal-reset" class="btn btn-danger">Réinitialiser les données locales</button>
+            </div>`;
+        document.body.appendChild(el);
+        el.querySelector('#fatal-reload').addEventListener('click', () => location.reload());
+        el.querySelector('#fatal-reset').addEventListener('click', () => {
+            if (confirm('Effacer toutes les données FollowDIA de cet appareil ? Les données présentes sur le Gist seront retéléchargées à la prochaine synchronisation.')) {
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith('followdia_'))
+                    .forEach(k => localStorage.removeItem(k));
+                location.reload();
+            }
+        });
+    }
+    el.querySelector('.fatal-msg').textContent = msg;
+}
+
+window.addEventListener('error', e => {
+    if (e && e.message) showFatalError('Erreur : ' + e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+    const msg = e && e.reason ? (e.reason.message || String(e.reason)) : 'inconnue';
+    showFatalError('Erreur : ' + msg);
+});
 
 // Boot
 document.addEventListener('DOMContentLoaded', () => {
