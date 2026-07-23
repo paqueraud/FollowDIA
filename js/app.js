@@ -413,10 +413,16 @@ function calcMealTotals(mealData, mealId) {
     const countedBolusUI = (bolus1Counted + bolus2Counted) / ratio;
 
     // Total bolus with correction given
-    const totalGivenWithCorrection = totalBolusGivenUI + (parseFloat(mealData.correctionGiven) || 0);
+    const correctionGivenUI = parseFloat(mealData.correctionGiven) || 0;
+    const totalGivenWithCorrection = totalBolusGivenUI + correctionGivenUI;
     const totalDueWithCorrection = totalBolusDue;
 
+    // Global %: (correction + meal) injected over theoretical
     const pctGiven = totalDueWithCorrection > 0 ? (totalGivenWithCorrection / totalDueWithCorrection) * 100 : 0;
+    // Meal-only %: injected meal boluses over theoretical meal bolus (no correction)
+    const mealPct = mealBolusUI > 0 ? (totalBolusGivenUI / mealBolusUI) * 100 : 0;
+    // Correction %: injected correction over recommended correction
+    const correctionPct = correction.safe > 0 ? (correctionGivenUI / correction.safe) * 100 : 0;
 
     // Remaining based on wantPct (uses only counted boluses)
     const wantPct = mealData.wantPct || 100;
@@ -435,11 +441,19 @@ function calcMealTotals(mealData, mealId) {
         totalGivenWithCorrection: round2(totalGivenWithCorrection),
         totalDueWithCorrection: round2(totalDueWithCorrection),
         pctGiven: round1(pctGiven),
+        mealPct: round1(mealPct),
+        correctionPct: round1(correctionPct),
+        correctionGivenUI: round2(correctionGivenUI),
         remainingUI: round2(remainingUI),
         remainingCarbs: round2(remainingCarbs),
         wantPct,
         ratio
     };
+}
+
+// Color convention for bolus percentages
+function pctColor(p) {
+    return p < 80 ? 'var(--danger)' : p > 120 ? 'var(--warning)' : 'var(--success)';
 }
 
 // ============================================================
@@ -588,6 +602,10 @@ function renderMeal() {
             </div>
             <label class="bolus-count-check"><input type="checkbox" id="bolus2-count" ${mealData.bolus2_count !== false ? 'checked' : ''}> Compter dans le reste à faire</label>
         </div>
+        <div class="meal-real-pct-row">
+            <span>Bolus repas effectué</span>
+            <span id="meal-real-pct" style="color:${totals.mealBolusUI > 0 ? pctColor(totals.mealPct) : 'var(--text-dim)'}">${totals.mealBolusUI > 0 ? round1(totals.mealPct) + '%' : '-'}</span>
+        </div>
         <div class="want-pct-section">
             <label>Je veux :</label>
             <input type="number" id="want-pct" value="${mealData.wantPct || 100}" min="0" max="200" inputmode="numeric" autocomplete="off">
@@ -599,30 +617,41 @@ function renderMeal() {
     // Bilan section
     const bilanHtml = `
     <div class="bilan-section">
-        <h4>Bilan du repas</h4>
+        <h4>Bilan des bolus</h4>
+        <div class="bilan-sub">Bolus de correction</div>
         <div class="bilan-row">
-            <span class="bilan-label">Bolus repas théorique</span>
-            <span class="bilan-value" style="color:var(--warning)">${round1(totals.mealBolusUI)} UI</span>
+            <span class="bilan-label">Théorique</span>
+            <span class="bilan-value" id="bilan-corr-theo" style="color:var(--warning)">${round1(totals.correction.safe)} UI</span>
         </div>
         <div class="bilan-row">
-            <span class="bilan-label">Bolus repas donné</span>
-            <span class="bilan-value" style="color:var(--success)">${round1(totals.totalBolusGivenUI)} UI</span>
+            <span class="bilan-label">% réalisé</span>
+            <span class="bilan-value" id="bilan-corr-pct" style="color:${totals.correction.safe > 0 ? pctColor(totals.correctionPct) : 'var(--text-dim)'}">${totals.correction.safe > 0 ? round1(totals.correctionPct) + '%' : '-'}</span>
+        </div>
+        <div class="bilan-sub">Bolus repas</div>
+        <div class="bilan-row">
+            <span class="bilan-label">Théorique</span>
+            <span class="bilan-value" id="bilan-meal-theo" style="color:var(--warning)">${round1(totals.mealBolusUI)} UI</span>
         </div>
         <div class="bilan-row">
-            <span class="bilan-label">% repas donné/théorique</span>
-            <span class="bilan-value" style="color:${totals.pctGiven < 80 ? 'var(--danger)' : totals.pctGiven > 120 ? 'var(--warning)' : 'var(--success)'}">${totals.totalBolusDue > 0 ? round1(totals.pctGiven) + '%' : '-'}</span>
-        </div>
-        <div class="bilan-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
-            <span class="bilan-label">Total dû (correction + repas)</span>
-            <span class="bilan-value">${round1(totals.totalDueWithCorrection)} UI</span>
+            <span class="bilan-label">Réel injecté</span>
+            <span class="bilan-value" id="bilan-meal-real" style="color:var(--success)">${round1(totals.totalBolusGivenUI)} UI</span>
         </div>
         <div class="bilan-row">
-            <span class="bilan-label">Total donné</span>
-            <span class="bilan-value" style="color:var(--success)">${round1(totals.totalGivenWithCorrection)} UI</span>
+            <span class="bilan-label">% injecté / théorique</span>
+            <span class="bilan-value" id="bilan-meal-pct" style="color:${totals.mealBolusUI > 0 ? pctColor(totals.mealPct) : 'var(--text-dim)'}">${totals.mealBolusUI > 0 ? round1(totals.mealPct) + '%' : '-'}</span>
+        </div>
+        <div class="bilan-sub">Bolus global (correction + repas)</div>
+        <div class="bilan-row">
+            <span class="bilan-label">Théorique</span>
+            <span class="bilan-value" id="bilan-glob-theo" style="color:var(--warning)">${round1(totals.totalDueWithCorrection)} UI</span>
         </div>
         <div class="bilan-row">
-            <span class="bilan-label">% total donné/dû</span>
-            <span class="bilan-value" style="color:${totals.pctGiven < 80 ? 'var(--danger)' : totals.pctGiven > 120 ? 'var(--warning)' : 'var(--success)'}">${totals.totalDueWithCorrection > 0 ? round1((totals.totalGivenWithCorrection/totals.totalDueWithCorrection)*100) + '%' : '-'}</span>
+            <span class="bilan-label">Réel injecté</span>
+            <span class="bilan-value" id="bilan-glob-real" style="color:var(--success)">${round1(totals.totalGivenWithCorrection)} UI</span>
+        </div>
+        <div class="bilan-row">
+            <span class="bilan-label">% injecté / théorique</span>
+            <span class="bilan-value" id="bilan-glob-pct" style="color:${totals.totalDueWithCorrection > 0 ? pctColor(totals.pctGiven) : 'var(--text-dim)'}">${totals.totalDueWithCorrection > 0 ? round1(totals.pctGiven) + '%' : '-'}</span>
         </div>
     </div>`;
 
@@ -971,20 +1000,23 @@ function refreshComputedValues() {
         remainingEl.textContent = 'Reste : ' + (totals.remainingUI > 0 ? round1(totals.remainingUI) + ' UI (' + round1(totals.remainingCarbs) + 'g)' : '0');
     }
 
-    // Bilan section
-    const bilanValues = $$('.bilan-section .bilan-row .bilan-value');
-    if (bilanValues.length >= 6) {
-        bilanValues[0].textContent = round1(totals.mealBolusUI) + ' UI';
-        bilanValues[1].textContent = round1(totals.totalBolusGivenUI) + ' UI';
-        const mealPct = totals.totalBolusDue > 0 ? round1(totals.pctGiven) : 0;
-        bilanValues[2].textContent = totals.totalBolusDue > 0 ? round1(totals.pctGiven) + '%' : '-';
-        bilanValues[2].style.color = mealPct < 80 ? 'var(--danger)' : mealPct > 120 ? 'var(--warning)' : 'var(--success)';
-        bilanValues[3].textContent = round1(totals.totalDueWithCorrection) + ' UI';
-        bilanValues[4].textContent = round1(totals.totalGivenWithCorrection) + ' UI';
-        const totalPct = totals.totalDueWithCorrection > 0 ? round1((totals.totalGivenWithCorrection/totals.totalDueWithCorrection)*100) : 0;
-        bilanValues[5].textContent = totals.totalDueWithCorrection > 0 ? totalPct + '%' : '-';
-        bilanValues[5].style.color = totalPct < 80 ? 'var(--danger)' : totalPct > 120 ? 'var(--warning)' : 'var(--success)';
-    }
+    // Bilan section + real meal pct (updated by id)
+    const setVal = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    const setPct = (id, pct, theo) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = theo > 0 ? round1(pct) + '%' : '-';
+        el.style.color = theo > 0 ? pctColor(pct) : 'var(--text-dim)';
+    };
+    setVal('bilan-corr-theo', round1(totals.correction.safe) + ' UI');
+    setPct('bilan-corr-pct', totals.correctionPct, totals.correction.safe);
+    setVal('bilan-meal-theo', round1(totals.mealBolusUI) + ' UI');
+    setVal('bilan-meal-real', round1(totals.totalBolusGivenUI) + ' UI');
+    setPct('bilan-meal-pct', totals.mealPct, totals.mealBolusUI);
+    setVal('bilan-glob-theo', round1(totals.totalDueWithCorrection) + ' UI');
+    setVal('bilan-glob-real', round1(totals.totalGivenWithCorrection) + ' UI');
+    setPct('bilan-glob-pct', totals.pctGiven, totals.totalDueWithCorrection);
+    setPct('meal-real-pct', totals.mealPct, totals.mealBolusUI);
 
     // Daily summary mini
     const miniItems = $$('.daily-summary-mini .mini-item');
