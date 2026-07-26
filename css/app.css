@@ -1551,6 +1551,18 @@ canvas {
     color: var(--warning);
 }
 
+.asst-diag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: calc(10px * var(--fs, 1));
+    line-height: 1.5;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    word-break: break-word;
+    color: var(--text);
+}
+
 .asst-disclaimer {
     margin-top: 14px;
     padding: 10px;

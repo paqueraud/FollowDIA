@@ -3066,13 +3066,21 @@ function mdDescribeShape(o, depth) {
     depth = depth || 0;
     if (o == null) return 'vide';
     if (Array.isArray(o)) {
-        return 'liste(' + o.length + ')' + (o.length && depth < 2 ? ' de ' + mdDescribeShape(o[0], depth + 1) : '');
+        return 'liste(' + o.length + ')' + (o.length && depth < 4 ? ' de ' + mdDescribeShape(o[0], depth + 1) : '');
     }
     if (typeof o === 'object') {
         const keys = Object.keys(o);
         if (!keys.length) return 'objet vide';
-        let s = 'objet{' + keys.slice(0, 6).join(',') + (keys.length > 6 ? ',…' + keys.length : '') + '}';
-        if (depth < 2) s += ' → ' + keys[0] + ': ' + mdDescribeShape(o[keys[0]], depth + 1);
+        let s = 'objet{' + keys.slice(0, 8).join(',') + (keys.length > 8 ? ',…' + keys.length : '') + '}';
+        if (depth < 4) {
+            // On détaille la clé la plus « riche » : celle qui porte les données
+            const best = keys.reduce((a, k) => {
+                const v = o[k];
+                const w = Array.isArray(v) ? v.length + 1 : (v && typeof v === 'object' ? Object.keys(v).length + 1 : 0);
+                return w > a.w ? { k, w } : a;
+            }, { k: keys[0], w: -1 });
+            s += ' → ' + best.k + ': ' + mdDescribeShape(o[best.k], depth + 1);
+        }
         return s;
     }
     return typeof o;
@@ -3107,48 +3115,91 @@ function mdMinDate(raw) {
     return min;
 }
 
-// Parcourt toute la réponse et reconnaît les données à leur FORME plutôt
-// qu'au nom des champs : robuste aux variations de l'API myDiabby.
+// Clés dont le NOM indique la nature des enregistrements qu'elles contiennent.
+// C'est plus fiable que de deviner : « glycemia » est capillaire, « cgm » est
+// le capteur, alors que les deux ont la même forme {valeur, horodatage}.
+const MD_KIND_KEYS = {
+    cgm: 'cgm', cgmdata: 'cgm', sensor: 'cgm', capteur: 'cgm',
+    glycemia: 'glycemia', glycemie: 'glycemia',
+    insulin: 'insulin', insuline: 'insulin',
+    meal: 'meal', repas: 'meal', snack: 'meal',
+    closed_loop: 'cl', closedloop: 'cl'
+};
+
+function mdIsPlainObj(v) {
+    return v && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Parcourt toute la réponse et reconnaît les données à leur forme ET au nom
+// de la clé qui les contient. Un nœud consommé n'interrompt jamais le
+// parcours de ses voisins : c'est ce qui manquait et faisait tout perdre.
 function mdHarvest(root, handlers) {
     const seen = new Set();
-    const walk = (node, hintDate, depth) => {
-        if (!node || typeof node !== 'object' || depth > 8) return;
+
+    const walk = (node, ctx, depth) => {
+        if (!node || typeof node !== 'object' || depth > 12) return;
         if (seen.has(node)) return;
         seen.add(node);
 
         if (Array.isArray(node)) {
-            node.forEach(v => walk(v, hintDate, depth + 1));
+            node.forEach(v => walk(v, ctx, depth + 1));
             return;
         }
 
-        const ownDate = mdNormalizeDate(node.date || node.day) || hintDate;
+        const ownDate = mdNormalizeDate(node.date || node.day) || ctx.date;
+        const skip = {};
 
-        // Période boucle fermée : { start, end, mode }
-        if (node.start && node.end && node.mode !== undefined) {
+        // Période Control-IQ : { start, end, mode }
+        if (node.start && node.end && node.mode !== undefined && typeof node.mode !== 'object') {
             handlers.cl(node, ownDate);
-            return;
         }
-        // Entrée du carnet : bolus, repas ou glycémie capillaire
-        if (node.insulin || node.meal || node.glycemia) {
-            handlers.entry(node, ownDate);
-            return;
-        }
-        // Point capteur : une valeur numérique + un horodatage, sans autre structure
-        const rawVal = node.value != null ? node.value : node.sgv;
-        if (rawVal != null && typeof rawVal !== 'object' && (node.date || node.time || node.datetime || hintDate)) {
+
+        // Enregistrement typé par la clé parente
+        const val = node.value != null ? node.value : node.sgv;
+        if (ctx.kind === 'cgm' && val != null && typeof val !== 'object') {
             handlers.cgm(node, ownDate);
-            return;
+        } else if (ctx.kind === 'glycemia' && val != null && typeof val !== 'object') {
+            handlers.entry({ time: node.time || node.date, glycemia: { value: val } }, ownDate);
+        } else if (ctx.kind === 'insulin' && (node.bolus != null || node.bolus_corr != null || node.basal != null)) {
+            handlers.entry({ time: node.time || node.date, insulin: node }, ownDate);
+        } else if (ctx.kind === 'meal' && node.carb != null) {
+            handlers.entry({ time: node.time || node.date, meal: node }, ownDate);
+        } else {
+            // Entrée « imbriquée » : { time, insulin: {...}, meal: {...} }
+            const nested = ['insulin', 'meal', 'glycemia'].filter(k => mdIsPlainObj(node[k]));
+            if (nested.length) {
+                handlers.entry(node, ownDate);
+                nested.forEach(k => { skip[k] = true; });
+            } else if (node.bolus != null || node.bolus_corr != null || node.carb != null) {
+                // Enregistrement « à plat » : { time, bolus, carb, … }
+                handlers.entry({
+                    time: node.time || node.date,
+                    insulin: (node.bolus != null || node.bolus_corr != null || node.basal != null) ? node : null,
+                    meal: node.carb != null ? node : null
+                }, ownDate);
+            } else if (val != null && typeof val !== 'object'
+                && (node.date || node.time || node.datetime) && !node.insulin && !node.meal) {
+                // Valeur horodatée isolée : très probablement un point capteur
+                handlers.cgm(node, ownDate);
+            }
         }
-        // Réglages de pompe repérés à leurs champs caractéristiques
+
         if (node.carbRatios || node.insulinSensitivities || node.basalSchedules) {
             handlers.pump(node);
         }
 
+        // On descend toujours : une clé peut contenir une LISTE
+        // d'enregistrements (insulin: [...]) et non un enregistrement unique.
         Object.keys(node).forEach(k => {
-            walk(node[k], mdDateKey(k) || ownDate, depth + 1);
+            if (skip[k]) return;
+            const dateK = mdDateKey(k);
+            // Une clé de date conserve la nature héritée : cgm: { "2026-07-01": [...] }
+            const kind = MD_KIND_KEYS[String(k).toLowerCase()] || (dateK ? ctx.kind : null);
+            walk(node[k], { date: dateK || ownDate, kind }, depth + 1);
         });
     };
-    walk(root, null, 0);
+
+    walk(root, { date: null, kind: null }, 0);
 }
 
 // Trouve le tableau de journées quel que soit l'emplacement dans la réponse
@@ -3214,10 +3265,12 @@ function mdNormalizeEntry(e) {
         // Tout autre champ numérique d'insuline est conservé tel quel :
         // c'est ce qui permet de voir ce que myDiabby renvoie réellement
         // (basale utilisateur, basale modifiée par Control-IQ, etc.)
+        const skipKeys = ['bolus', 'bolus_corr', 'basal', 'device', 'datas', 'time',
+            'date', 'datetime', 'day', 'id', 'type', 'pro', 'carb'];
         Object.keys(e.insulin).forEach(k => {
-            if (['bolus', 'bolus_corr', 'basal', 'device', 'datas'].indexOf(k) >= 0) return;
+            if (skipKeys.indexOf(k) >= 0) return;
             const v = parseFloat(e.insulin[k]);
-            if (!isNaN(v)) { o.x = o.x || {}; o.x[k] = v; }
+            if (!isNaN(v) && typeof e.insulin[k] !== 'object') { o.x = o.x || {}; o.x[k] = v; }
         });
     }
     if (e.meal && e.meal.carb != null) o.carb = parseFloat(e.meal.carb) || 0;
@@ -3327,7 +3380,10 @@ function mdBuildPayload(rawList, pumpRaw) {
         source: 'api',
         pumpSettings,
         days: out,
-        stats: { entries: nEntries, cgm: nCgm }
+        stats: { entries: nEntries, cgm: nCgm },
+        // Empreinte de la réponse (clés uniquement) : permet de diagnostiquer
+        // un import incomplet sans avoir à deviner le format de l'API.
+        diag: mdDescribeShape(raws.find(Boolean))
     };
 }
 
@@ -3986,7 +4042,15 @@ function renderAsst48h() {
         html += '</tbody></table></div>';
     }
     if (!totals.basal) {
-        html += '<p class="asst-warn">⚠ Aucun relevé de basal reçu : myDiabby ne transmet que le basal du profil, pas les ajustements Control-IQ minute par minute.</p>';
+        html += '<p class="asst-warn">⚠ Aucun relevé de basal reçu sur cette période.</p>';
+    }
+    // Diagnostic affiché tant que l'import n'est manifestement pas complet
+    const thin = data.days.length < 7 || !data.stats || !data.stats.cgm;
+    if (thin && data.diag) {
+        html += '<h4 class="asst-sub">Diagnostic — structure reçue de myDiabby</h4>'
+            + '<p class="asst-diag">' + asstEsc(data.diag) + '</p>'
+            + '<p class="asst-dim">' + (data.stats ? data.stats.entries + ' entrées et ' + data.stats.cgm + ' mesures capteur reconnues. ' : '')
+            + 'Copiez cette ligne pour la signaler : elle décrit les champs reçus (aucune donnée de santé).</p>';
     }
     html += '</div>';
     el.innerHTML = html;
