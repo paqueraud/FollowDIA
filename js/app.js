@@ -2978,7 +2978,14 @@ const ASST_REPORTS_KEY = 'followdia_assistant_reports';
 const ASST_MODEL = 'claude-opus-5';
 const ASST_PRICE_USD_PER_MTOK = { input: 5, output: 25 };
 const ASST_STALE_DAYS = 7;
-const ASST_WINDOW_DAYS = 14; // fenêtre d'analyse sur les données importées
+const ASST_WINDOW_DAYS = 14; // valeur par défaut
+const ASST_WINDOWS = [7, 14, 30, 60];
+
+// Période choisie : elle pilote la récupération myDiabby ET l'analyse
+function asstWindowDays() {
+    const w = asstGetCfg().windowDays;
+    return ASST_WINDOWS.indexOf(w) >= 0 ? w : ASST_WINDOW_DAYS;
+}
 
 function asstEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -3282,9 +3289,10 @@ function mdNormalizeEntry(e) {
 // Transforme une ou plusieurs réponses brutes en payload followdia-mydiabby-v1.
 // L'API renvoie selon les cas des journées déjà groupées, ou des listes plates
 // (entrées + points capteur) à regrouper par date : les deux sont gérées.
-function mdBuildPayload(rawList, pumpRaw) {
+function mdBuildPayload(rawList, pumpRaw, windowDays) {
     const raws = Array.isArray(rawList) ? rawList : [rawList];
-    const cutoff = Date.now() - 90 * 86400000;
+    const nDaysWindow = windowDays || 90;
+    const cutoff = Date.now() - nDaysWindow * 86400000;
     const dayMap = new Map();
     const seenKeys = new Set();
     let nEntries = 0, nCgm = 0, nOutOfWindow = 0;
@@ -3356,7 +3364,7 @@ function mdBuildPayload(rawList, pumpRaw) {
     if (!out.length) {
         const first = raws.find(Boolean);
         const why = nOutOfWindow
-            ? 'toutes les données reçues sont antérieures à 90 jours'
+            ? 'toutes les données reçues sont antérieures à ' + nDaysWindow + ' jours'
             : 'aucune donnée reconnue';
         throw new Error('Import impossible : ' + why + ' — reçu : ' + mdDescribeShape(first));
     }
@@ -3405,10 +3413,12 @@ async function asstSyncMyDiabby() {
         const token = await mdLogin(cfg.user, cfg.pass);
 
         // L'API se requête par fenêtres de dates (datefirst / datelast) ;
-        // on balaie 90 jours par tranches de 15 jours.
+        // on balaie la période choisie par tranches de 10 jours.
         const fmt = d => d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
         const dayBefore = ds => fmt(new Date(new Date(ds + 'T12:00:00').getTime() - 86400000));
-        const chunkDays = 10, totalDays = 90;
+        // On ne récupère que la période qui sera réellement analysée
+        const totalDays = asstWindowDays();
+        const chunkDays = Math.min(10, totalDays);
         const raws = [];
         for (let offset = 0; offset < totalDays; offset += chunkDays) {
             const firstStr = fmt(new Date(Date.now() - Math.min(offset + chunkDays - 1, totalDays - 1) * 86400000));
@@ -3448,7 +3458,7 @@ async function asstSyncMyDiabby() {
             }
         }
 
-        const payload = mdBuildPayload(raws, pumpRaws);
+        const payload = mdBuildPayload(raws, pumpRaws, totalDays);
         const nCgm = payload.stats ? payload.stats.cgm : payload.days.reduce((a, d) => a + d.cgm.length, 0);
         if (!payload.pumpSettings) {
             console.warn('Réglages de pompe introuvables dans la réponse myDiabby');
@@ -3756,9 +3766,12 @@ const ASST_REPORT_SCHEMA = {
                     isf_propose: { type: 'number' },
                     basal_actuel: { type: 'number' },
                     basal_propose: { type: 'number' },
+                    cible_actuelle: { type: 'number' },
+                    cible_proposee: { type: 'number' },
                     justification: { type: 'string', maxLength: 400 }
                 },
-                required: ['debut', 'fin', 'ratio_actuel', 'ratio_propose', 'isf_actuel', 'isf_propose', 'basal_actuel', 'basal_propose', 'justification'],
+                required: ['debut', 'fin', 'ratio_actuel', 'ratio_propose', 'isf_actuel', 'isf_propose',
+                    'basal_actuel', 'basal_propose', 'cible_actuelle', 'cible_proposee', 'justification'],
                 additionalProperties: false
             }
         },
@@ -3781,6 +3794,7 @@ const ASST_SYSTEM_PROMPT = 'Tu es un assistant d\'aide à la décision destiné 
     + '- Si les données sont insuffisantes ou anciennes pour une plage, dis-le dans qualite_donnees et ne propose pas de changement sur cette plage (valeur proposée = valeur actuelle).\n'
     + '- Le découpage proposé peut fusionner ou scinder des plages existantes si les données le justifient ; les plages doivent couvrir 24 h sans trou ni chevauchement, en commençant à 00:00.\n'
     + '- Quand un paramètre ne change pas, mets la valeur proposée égale à la valeur actuelle.\n'
+    + '- La cible glycémique de la pompe ne se modifie qu\'exceptionnellement : reprends la cible actuelle sauf justification forte.\n'
     + '- Dans les avertissements, rappelle toujours que ces propositions sont une aide à la décision à valider avec l\'équipe de diabétologie avant toute modification sur la pompe.\n'
     + '- Réponds en français.';
 
@@ -3858,7 +3872,7 @@ async function asstRunAnalysis() {
     if (!cfg.apiKey) { toast('Renseignez la clé API Anthropic'); return; }
     if (!data) { toast('Importez d\'abord les données myDiabby'); return; }
 
-    const windowDays = cfg.windowDays === 7 ? 7 : 14;
+    const windowDays = asstWindowDays();
     const agg = asstAggregate(data, windowDays);
     if (!agg) { toast('Pas assez de données CGM pour analyser'); return; }
     const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
@@ -3996,7 +4010,7 @@ function renderAsstDataStatus() {
     if (!data) {
         const cfg = mdGetCfg();
         el.innerHTML = (cfg.user && cfg.pass)
-            ? 'Aucune donnée. Cliquez sur <b>Récupérer depuis myDiabby</b> pour importer automatiquement les 90 derniers jours.'
+            ? 'Aucune donnée. Cliquez sur <b>Récupérer depuis myDiabby</b> pour importer la période choisie.'
             : 'Aucune donnée. Renseignez vos identifiants myDiabby dans <b>⚙ Paramètres → myDiabby</b>, puis cliquez sur <b>Récupérer depuis myDiabby</b>.';
         if (clearBtn) clearBtn.classList.add('hidden');
         return;
@@ -4009,6 +4023,7 @@ function renderAsstDataStatus() {
     } else {
         html += '<div class="asst-ok">✓ Données récentes (il y a ' + fresh.ageDays + ' jour' + (fresh.ageDays > 1 ? 's' : '') + ')</div>';
     }
+    html += asstWindowNotice(data);
     el.innerHTML = html;
     if (clearBtn) clearBtn.classList.remove('hidden');
 }
@@ -4183,7 +4198,7 @@ function renderAsstLocalSummary() {
     if (!el) return;
     const data = asstGetData();
     if (!data) { el.innerHTML = ''; return; }
-    const win = asstGetCfg().windowDays === 7 ? 7 : 14;
+    const win = asstWindowDays();
     const agg = asstAggregate(data, win);
     if (!agg) { el.innerHTML = ''; return; }
     const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
@@ -4228,6 +4243,159 @@ function renderAsstLocalSummary() {
         + (agg.sources.jours_sans_glucides ? ', aucun sur ' + agg.sources.jours_sans_glucides + ' j' : '') + '. '
         + 'Δ Ctrl-IQ = basal délivré − basal programmé.</p></div>';
     el.innerHTML = html;
+}
+
+// Profil recommandé : même présentation que le profil de pompe, les
+// paramètres modifiés étant mis en évidence.
+function asstRecommendedRows(rep) {
+    return (rep.plages_proposees || []).map(p => ({
+        plage: p.debut + '–' + p.fin,
+        cells: [
+            { val: p.basal_propose, old: p.basal_actuel },
+            { val: p.ratio_propose, old: p.ratio_actuel },
+            { val: p.isf_propose, old: p.isf_actuel },
+            { val: p.cible_proposee, old: p.cible_actuelle },
+        ]
+    }));
+}
+
+function renderAsstRecommended() {
+    const el = $('#asst-recommended');
+    if (!el) return;
+    const reports = asstGetReports();
+    if (!reports.length) { el.innerHTML = ''; return; }
+    const r = reports[0];
+    const rows = asstRecommendedRows(r.report);
+    if (!rows.length) { el.innerHTML = ''; return; }
+
+    let nChanged = 0;
+    let html = '<div class="card"><h3>Profil recommandé</h3>';
+    html += '<p class="asst-dim">Analyse du ' + asstEsc(new Date(r.ts).toLocaleDateString('fr-FR'))
+        + (r.periode ? ' — ' + asstEsc(r.periode.debut) + ' → ' + asstEsc(r.periode.fin)
+            + ' (' + r.periode.nb_jours + ' j)' : '') + '</p>';
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr>'
+        + '<th>Plage</th><th>Basal U/h</th><th>Ratio g/U</th><th>Sensib.</th><th>Cible</th></tr></thead><tbody>';
+    rows.forEach(row => {
+        html += '<tr><td>' + asstEsc(row.plage) + '</td>';
+        row.cells.forEach(c => {
+            const changed = c.val != null && c.old != null && c.val !== c.old;
+            if (changed) nChanged++;
+            html += changed
+                ? '<td class="asst-cell-changed"><b>' + asstEsc(c.val) + '</b> <s>' + asstEsc(c.old) + '</s></td>'
+                : '<td>' + (c.val != null ? asstEsc(c.val) : '—') + '</td>';
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    const totalBasal = rows.reduce((a, row) => {
+        const parts = row.plage.split('–');
+        const h = ((asstHmToMs(parts[1]) || 24 * 3600000) - asstHmToMs(parts[0])) / 3600000;
+        return a + (row.cells[0].val || 0) * (h > 0 ? h : 0);
+    }, 0);
+    html += '<p class="asst-dim">' + rows.length + ' plages — ' + nChanged + ' paramètre'
+        + (nChanged > 1 ? 's modifiés' : ' modifié')
+        + ' — basal quotidien proposé : ' + Math.round(totalBasal * 100) / 100 + ' U/24 h</p>';
+    html += '<button id="btn-asst-pdf" class="btn btn-secondary">Rapport PDF à partager</button>';
+    html += '</div>';
+    el.innerHTML = html;
+
+    const pdfBtn = $('#btn-asst-pdf');
+    if (pdfBtn) pdfBtn.addEventListener('click', asstOpenPdfReport);
+}
+
+// Rapport imprimable (aucun appel à l'API) : le navigateur permet ensuite
+// « Enregistrer au format PDF » depuis la boîte d'impression.
+function asstBuildReportHtml() {
+    const reports = asstGetReports();
+    if (!reports.length) return null;
+    const r = reports[0];
+    const rep = r.report;
+    const data = asstGetData();
+    const agg = data ? asstAggregate(data, r.windowDays || asstWindowDays()) : null;
+    const dateStr = new Date(r.ts).toLocaleDateString('fr-FR') + ' à '
+        + new Date(r.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    const cell = (v, old) => {
+        const changed = v != null && old != null && v !== old;
+        return changed
+            ? '<td class="chg"><b>' + asstEsc(v) + '</b> <span class="old">' + asstEsc(old) + '</span></td>'
+            : '<td>' + (v != null ? asstEsc(v) : '—') + '</td>';
+    };
+
+    let profileRows = '';
+    (rep.plages_proposees || []).forEach(p => {
+        profileRows += '<tr><td>' + asstEsc(p.debut) + '–' + asstEsc(p.fin) + '</td>'
+            + cell(p.basal_propose, p.basal_actuel)
+            + cell(p.ratio_propose, p.ratio_actuel)
+            + cell(p.isf_propose, p.isf_actuel)
+            + cell(p.cible_proposee, p.cible_actuelle)
+            + '<td class="just">' + asstEsc(p.justification || '') + '</td></tr>';
+    });
+
+    let statsBlock = '';
+    if (agg) {
+        statsBlock = '<h2>Situation observée</h2><table class="stats"><tr>'
+            + '<td><span>Temps dans la cible</span><b>' + agg.global.tir_70_180_pct + ' %</b></td>'
+            + '<td><span>Glycémie moyenne</span><b>' + agg.global.glycemie_moyenne + ' mg/dl</b></td>'
+            + '<td><span>HbA1c estimée (GMI)</span><b>' + agg.global.gmi_pct + ' %</b></td>'
+            + '<td><span>Variabilité (CV)</span><b>' + agg.global.cv_pct + ' %</b></td>'
+            + '<td><span>Temps sous 70</span><b>' + agg.global.temps_sous_70_pct + ' %</b></td>'
+            + '</tr></table>';
+    }
+
+    const list = (arr, cls) => (arr && arr.length)
+        ? '<ul class="' + (cls || '') + '">' + arr.map(x => '<li>' + asstEsc(x) + '</li>').join('') + '</ul>'
+        : '';
+
+    return '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">'
+        + '<title>FollowDIA — Analyse ' + asstEsc(new Date(r.ts).toLocaleDateString('fr-FR')) + '</title><style>'
+        + '*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:24px;line-height:1.45}'
+        + 'h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#444;margin:22px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}'
+        + '.meta{color:#666;font-size:12px;margin-bottom:8px}p{font-size:13px}'
+        + 'table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px}'
+        + 'th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}'
+        + 'th{background:#f1f3f6;font-weight:600}'
+        + 'td.chg{background:#fff6e0}td.chg b{color:#a8500a}.old{color:#999;text-decoration:line-through;margin-left:4px}'
+        + 'td.just{font-size:11px;color:#444}'
+        + 'table.stats td{border:none;padding:6px 10px 6px 0}table.stats span{display:block;font-size:11px;color:#666}table.stats b{font-size:16px}'
+        + 'ul{font-size:13px;margin:4px 0 0 18px;padding:0}li{margin-bottom:3px}'
+        + '.warn li{color:#8a4b00}'
+        + '.disclaimer{margin-top:22px;padding:10px;border:1px solid #ccc;background:#f7f7f7;font-size:12px;font-weight:600}'
+        + '.foot{margin-top:14px;color:#888;font-size:11px}'
+        + '@media print{body{margin:12mm}h2{break-after:avoid}tr{break-inside:avoid}}'
+        + '</style></head><body>'
+        + '<h1>FollowDIA — Révision des paramètres d\'insulinothérapie</h1>'
+        + '<div class="meta">Analyse du ' + asstEsc(dateStr)
+        + (r.periode ? ' · période étudiée : ' + asstEsc(r.periode.debut) + ' → ' + asstEsc(r.periode.fin)
+            + ' (' + r.periode.nb_jours + ' jours)' : '')
+        + (data && data.pumpSettings && data.pumpSettings.activeSchedule
+            ? ' · profil ' + asstEsc(data.pumpSettings.activeSchedule) : '')
+        + '</div>'
+        + '<p>' + asstEsc(rep.resume || '') + '</p>'
+        + statsBlock
+        + '<h2>Profil recommandé</h2>'
+        + '<table><thead><tr><th>Plage</th><th>Basal U/h</th><th>Ratio g/U</th><th>Sensib.</th><th>Cible</th><th>Justification</th></tr></thead>'
+        + '<tbody>' + profileRows + '</tbody></table>'
+        + '<p class="foot">Les valeurs sur fond orangé sont les modifications proposées ; l\'ancienne valeur est rappelée barrée.</p>'
+        + (rep.qualite_donnees ? '<h2>Qualité des données</h2><p>' + asstEsc(rep.qualite_donnees) + '</p>' : '')
+        + (rep.priorites && rep.priorites.length ? '<h2>Priorités</h2>' + list(rep.priorites) : '')
+        + (rep.avertissements && rep.avertissements.length ? '<h2>Avertissements</h2>' + list(rep.avertissements, 'warn') : '')
+        + '<div class="disclaimer">Aide à la décision uniquement. Toute modification des paramètres de la pompe doit être validée par l\'équipe de diabétologie avant d\'être appliquée.</div>'
+        + '<div class="foot">Rapport généré par FollowDIA — analyse ' + asstEsc(r.model || ASST_MODEL)
+        + '. Bolus : données de la pompe. Glucides : saisies FollowDIA si disponibles, sinon pompe.</div>'
+        + '</body></html>';
+}
+
+function asstOpenPdfReport() {
+    const html = asstBuildReportHtml();
+    if (!html) { toast('Aucune analyse à exporter'); return; }
+    const w = window.open('', '_blank');
+    if (!w) { toast('Autorisez les fenêtres pop-up pour générer le rapport'); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    // Laisse la mise en page se faire avant d'ouvrir la boîte d'impression
+    setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* l'utilisateur imprimera manuellement */ } }, 400);
 }
 
 function renderAsstReport() {
@@ -4278,10 +4446,19 @@ function renderAsstReport() {
 }
 
 function updateAsstWindowButtons() {
-    const w = asstGetCfg().windowDays === 7 ? 7 : 14;
+    const w = asstWindowDays();
     $$('.asst-win-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.win, 10) === w);
     });
+}
+
+// Signale que les données importées ne couvrent pas la période demandée
+function asstWindowNotice(data) {
+    const want = asstWindowDays();
+    if (!data || data.days.length >= want) return '';
+    return '<div class="asst-warn">⚠ Période choisie : ' + want + ' jours, mais seulement '
+        + data.days.length + ' jour' + (data.days.length > 1 ? 's' : '')
+        + ' importé' + (data.days.length > 1 ? 's' : '') + '. Relancez la récupération.</div>';
 }
 
 function renderAssistant() {
@@ -4291,6 +4468,7 @@ function renderAssistant() {
     renderAsst48h();
     renderAsstLocalSummary();
     renderAsstBalance();
+    renderAsstRecommended();
     renderAsstReport();
     const cfg = asstGetCfg();
     const keyEl = $('#asst-api-key');
@@ -4332,9 +4510,11 @@ function initAssistant() {
 
     $$('.asst-win-btn').forEach(b => b.addEventListener('click', () => {
         const c = asstGetCfg();
-        c.windowDays = parseInt(b.dataset.win, 10) === 7 ? 7 : 14;
+        const v = parseInt(b.dataset.win, 10);
+        c.windowDays = ASST_WINDOWS.indexOf(v) >= 0 ? v : ASST_WINDOW_DAYS;
         asstSaveCfg(c);
         updateAsstWindowButtons();
+        renderAsstDataStatus();
         renderAsstLocalSummary();
     }));
 

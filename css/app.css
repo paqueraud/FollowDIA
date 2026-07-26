@@ -1561,7 +1561,26 @@ canvas {
 .asst-window-row {
     display: flex;
     gap: 8px;
-    margin-bottom: 12px;
+    margin-top: 10px;
+}
+
+.asst-window-row .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 4px;
+}
+
+.asst-cell-changed {
+    background: rgba(243, 156, 18, 0.16);
+}
+
+.asst-cell-changed b {
+    color: var(--warning);
+}
+
+.asst-cell-changed s {
+    opacity: 0.6;
+    font-size: calc(10px * var(--fs, 1));
 }
 
 .asst-win-btn.active {
