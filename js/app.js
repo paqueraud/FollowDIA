@@ -3533,11 +3533,38 @@ function asstBuildSlots(pumpSettings) {
     }));
 }
 
+// Glucides d'une journée : FollowDIA fait foi quand le repas y est saisi,
+// sinon on retient les glucides enregistrés dans la pompe.
+function asstCarbEventsForDay(day) {
+    const fd = [];
+    MEALS.forEach(m => {
+        const md = state[day.date] && state[day.date][m.id];
+        if (!md || !md.foods || !md.foods.some(f => f.name)) return;
+        const t = calcMealTotals(md, m.id);
+        if (t.totalCarbs > 0) fd.push({ ms: asstHmToMs(m.time), carbs: t.totalCarbs, src: 'followdia' });
+    });
+    if (fd.length) return fd;
+    return (day.entries || [])
+        .filter(e => e.carb != null && e.carb > 0)
+        .map(e => ({ ms: asstHmToMs(e.t), carbs: e.carb, src: 'pompe' }));
+}
+
 // Agrégats calculés sur la fenêtre d'analyse (pure : ne touche pas aux globals)
-function asstAggregate(data) {
-    const days = data.days.slice(-ASST_WINDOW_DAYS);
+function asstAggregate(data, windowDays) {
+    const days = data.days.slice(-(windowDays || ASST_WINDOW_DAYS));
     if (!days.length) return null;
     const slots = asstBuildSlots(data.pumpSettings);
+
+    // Source des glucides, jour par jour
+    const carbsByDay = {};
+    let daysCarbsFollowdia = 0, daysCarbsPompe = 0, daysCarbsAucun = 0;
+    days.forEach(day => {
+        const ev = asstCarbEventsForDay(day);
+        carbsByDay[day.date] = ev;
+        if (!ev.length) daysCarbsAucun++;
+        else if (ev[0].src === 'followdia') daysCarbsFollowdia++;
+        else daysCarbsPompe++;
+    });
 
     const localMs = ts => {
         const d = new Date(ts);
@@ -3584,28 +3611,42 @@ function asstAggregate(data) {
         return s[Math.floor(s.length / 2)];
     };
 
-    // Bolus, glucides et ratio effectif par plage
+    // Bolus (source pompe), glucides (FollowDIA prioritaire) et basale par plage
+    const nDays = days.length;
     const slotStats = slots.map((slot, i) => {
         const c = perSlot[i];
         let carbs = 0, mealBolus = 0, corrBolus = 0, nBolus = 0, nMeals = 0;
+        const basalRec = [];
         days.forEach(day => {
             (day.entries || []).forEach(e => {
                 const ms = asstHmToMs(e.t);
                 if (ms < slot.start || ms >= slot.end) return;
                 if (e.ins) { mealBolus += e.ins.b; corrBolus += e.ins.c; nBolus++; }
-                if (e.carb != null) { carbs += e.carb; nMeals++; }
+                if (e.basal != null) basalRec.push(e.basal);
+            });
+            (carbsByDay[day.date] || []).forEach(ev => {
+                if (ev.ms < slot.start || ev.ms >= slot.end) return;
+                carbs += ev.carbs;
+                nMeals++;
             });
         });
+        const basalDelivre = basalRec.length
+            ? Math.round(basalRec.reduce((a, b) => a + b, 0) / basalRec.length * 1000) / 1000 : null;
         return {
             debut: slot.debut, fin: slot.fin,
-            ratio_actuel: slot.ratio, isf_actuel: slot.isf, basal_actuel: slot.basal,
+            ratio_actuel: slot.ratio, isf_actuel: slot.isf,
+            basal_profil_u_h: slot.basal, cible_actuelle: slot.target,
+            basal_delivre_moyen_u_h: basalDelivre,
+            ajustement_controliq_u_h: (basalDelivre != null && slot.basal != null)
+                ? Math.round((basalDelivre - slot.basal) * 1000) / 1000 : null,
+            nb_releves_basal: basalRec.length,
             tir_pct: c.n ? Math.round(c.in / c.n * 1000) / 10 : null,
             hypo_pct: c.n ? Math.round((c.low + c.vlow) / c.n * 1000) / 10 : null,
             hyper250_pct: c.n ? Math.round(c.vhigh / c.n * 1000) / 10 : null,
             glycemie_moyenne: c.n ? Math.round(c.sum / c.n) : null,
-            glucides_totaux_g: Math.round(carbs),
-            bolus_repas_total_u: Math.round(mealBolus * 10) / 10,
-            bolus_correction_total_u: Math.round(corrBolus * 10) / 10,
+            glucides_par_jour_g: Math.round(carbs / nDays * 10) / 10,
+            bolus_repas_par_jour_u: Math.round(mealBolus / nDays * 100) / 100,
+            bolus_correction_par_jour_u: Math.round(corrBolus / nDays * 100) / 100,
             nb_bolus: nBolus, nb_repas: nMeals,
             ratio_effectif_observe: mealBolus > 0.5 ? Math.round(carbs / mealBolus * 10) / 10 : null,
         };
@@ -3617,9 +3658,9 @@ function asstAggregate(data) {
         const cgm = day.cgm || [];
         if (!cgm.length) return;
         const dayStart = new Date(cgm[Math.floor(cgm.length / 2)][0]).setHours(0, 0, 0, 0);
-        (day.entries || []).forEach(e => {
-            if (e.carb == null || e.carb < 10) return;
-            const mealTs = dayStart + asstHmToMs(e.t);
+        (carbsByDay[day.date] || []).forEach(ev => {
+            if (ev.carbs < 10) return;
+            const mealTs = dayStart + ev.ms;
             let start = null, peak = null;
             cgm.forEach(pt => {
                 const ts = pt[0], v = pt[1];
@@ -3627,7 +3668,7 @@ function asstAggregate(data) {
                 if (ts > mealTs && ts <= mealTs + 3 * 3600000 && (peak == null || v > peak)) peak = v;
             });
             if (start && peak != null) {
-                excursions.push({ slot: slotIndex(asstHmToMs(e.t)), rise: peak - start[1], pic: peak });
+                excursions.push({ slot: slotIndex(ev.ms), rise: peak - start[1], pic: peak });
             }
         });
     });
@@ -3658,6 +3699,13 @@ function asstAggregate(data) {
             temps_sous_70_pct: Math.round(nLow / allValues.length * 1000) / 10,
         },
         controliq_actif_pct: clTotal > 0 ? Math.round(clOn / clTotal * 100) : null,
+        sources: {
+            bolus: 'pompe (myDiabby)',
+            glucides: 'FollowDIA prioritaire, pompe en repli',
+            jours_glucides_followdia: daysCarbsFollowdia,
+            jours_glucides_pompe: daysCarbsPompe,
+            jours_sans_glucides: daysCarbsAucun,
+        },
         mediane_par_heure: perHour.map(median),
         plages: slotStats,
     };
@@ -3708,7 +3756,7 @@ const ASST_REPORT_SCHEMA = {
                     isf_propose: { type: 'number' },
                     basal_actuel: { type: 'number' },
                     basal_propose: { type: 'number' },
-                    justification: { type: 'string' }
+                    justification: { type: 'string', maxLength: 400 }
                 },
                 required: ['debut', 'fin', 'ratio_actuel', 'ratio_propose', 'isf_actuel', 'isf_propose', 'basal_actuel', 'basal_propose', 'justification'],
                 additionalProperties: false
@@ -3725,6 +3773,8 @@ const ASST_SYSTEM_PROMPT = 'Tu es un assistant d\'aide à la décision destiné 
     + 'Ta mission : à partir des données fournies (réglages actuels de la pompe, statistiques CGM par plage horaire, bolus, glucides, excursions post-prandiales, taux de réalisation des bolus repas), proposer des ajustements OPTIMAUX du découpage des plages horaires, des ratios glucidiques (g/U) et des sensibilités (mg/dl/U), avec pour objectif de maximiser le temps dans la cible 70-180 mg/dl SANS augmenter le risque d\'hypoglycémie.\n\n'
     + 'Règles impératives :\n'
     + '- Control-IQ module automatiquement la basale et fait des corrections automatiques ; les leviers principaux sont les ratios, les sensibilités et le programme basal de base. Tiens-en compte.\n'
+    + '- Pour chaque plage, « basal_profil_u_h » est le débit programmé et « basal_delivre_moyen_u_h » le débit réellement délivré. « ajustement_controliq_u_h » est leur différence : positif, Control-IQ compense en permanence un basal programmé trop faible sur cette plage ; négatif, il freine un basal trop fort. C\'est un signal direct pour corriger le programme basal de base.\n'
+    + '- Provenance des données : les bolus proviennent de la pompe (donnée de référence). Les glucides proviennent de FollowDIA quand le repas y a été saisi, sinon de la pompe ; le champ « sources » indique combien de jours relèvent de chaque cas.\n'
     + '- Ne propose jamais un changement de plus de 20 % d\'un paramètre en une seule étape.\n'
     + '- Si le pourcentage de bolus repas réellement fait est bas sur un repas, l\'hyperglycémie post-prandiale peut venir de là et non du ratio : signale-le au lieu de renforcer le ratio.\n'
     + '- Priorise la sécurité : traite d\'abord les hypoglycémies, ensuite les hyperglycémies. Sois particulièrement prudent la nuit.\n'
@@ -3736,9 +3786,68 @@ const ASST_SYSTEM_PROMPT = 'Tu es un assistant d\'aide à la décision destiné 
 
 function asstEstimateCostEur(cfg, inputChars) {
     const inTok = Math.ceil(inputChars / 3.2) + 800;
-    const outTok = 3000;
+    // Le raisonnement du modèle est facturé comme de la sortie : on l'estime
+    // largement pour ne pas annoncer un coût trop optimiste.
+    const outTok = 12000;
     const usd = inTok * ASST_PRICE_USD_PER_MTOK.input / 1e6 + outTok * ASST_PRICE_USD_PER_MTOK.output / 1e6;
     return usd * (cfg.usdToEur || 0.92);
+}
+
+// Appel en flux : la réponse complète (raisonnement inclus) peut dépasser la
+// minute, et le streaming évite aussi bien les coupures que les délais HTTP.
+async function asstCallClaudeStreaming(apiKey, body, onProgress) {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify(Object.assign({ stream: true }, body))
+    });
+
+    if (!resp.ok) {
+        const errBody = await resp.json().catch(() => null);
+        const msg = errBody && errBody.error && errBody.error.message ? errBody.error.message : ('HTTP ' + resp.status);
+        throw new Error(resp.status === 401 ? 'Clé API invalide' : msg);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '', text = '', stopReason = null, model = null;
+    const usage = { input_tokens: 0, output_tokens: 0 };
+    let thinking = false;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+            if (line.indexOf('data:') !== 0) continue;
+            const raw = line.slice(5).trim();
+            if (!raw || raw === '[DONE]') continue;
+            let ev;
+            try { ev = JSON.parse(raw); } catch (e) { continue; }
+            if (ev.type === 'message_start' && ev.message) {
+                model = ev.message.model;
+                if (ev.message.usage) Object.assign(usage, ev.message.usage);
+            } else if (ev.type === 'content_block_start' && ev.content_block) {
+                thinking = ev.content_block.type === 'thinking';
+            } else if (ev.type === 'content_block_delta' && ev.delta) {
+                if (ev.delta.type === 'text_delta') text += ev.delta.text;
+                if (onProgress) onProgress(thinking ? 'reflexion' : 'redaction', text.length);
+            } else if (ev.type === 'message_delta') {
+                if (ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
+                if (ev.usage) Object.assign(usage, ev.usage);
+            } else if (ev.type === 'error') {
+                throw new Error(ev.error && ev.error.message ? ev.error.message : 'Erreur du modèle');
+            }
+        }
+    }
+    return { text, stopReason, usage, model };
 }
 
 async function asstRunAnalysis() {
@@ -3749,7 +3858,8 @@ async function asstRunAnalysis() {
     if (!cfg.apiKey) { toast('Renseignez la clé API Anthropic'); return; }
     if (!data) { toast('Importez d\'abord les données myDiabby'); return; }
 
-    const agg = asstAggregate(data);
+    const windowDays = cfg.windowDays === 7 ? 7 : 14;
+    const agg = asstAggregate(data, windowDays);
     if (!agg) { toast('Pas assez de données CGM pour analyser'); return; }
     const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
     const fresh = asstFreshness(data);
@@ -3786,56 +3896,68 @@ async function asstRunAnalysis() {
 
     const btn = $('#btn-asst-analyze');
     btn.disabled = true;
-    if (statusEl) statusEl.textContent = 'Analyse en cours (peut prendre 1 à 3 minutes)...';
+    const t0 = Date.now();
+    const onProgress = (phase, chars) => {
+        if (!statusEl) return;
+        const s = Math.round((Date.now() - t0) / 1000);
+        statusEl.textContent = (phase === 'reflexion' ? 'Analyse en cours' : 'Rédaction du rapport')
+            + '... ' + s + ' s' + (chars ? ' (' + chars + ' caractères)' : '');
+    };
+    if (statusEl) statusEl.textContent = 'Analyse en cours... (1 à 3 minutes)';
 
-    try {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'x-api-key': cfg.apiKey,
-                'anthropic-version': '2023-06-01',
-                'anthropic-dangerous-direct-browser-access': 'true'
-            },
-            body: JSON.stringify({
-                model: ASST_MODEL,
-                max_tokens: 8000,
-                system: [{ type: 'text', text: ASST_SYSTEM_PROMPT }],
-                messages: [{ role: 'user', content: userText }],
-                output_config: { format: { type: 'json_schema', schema: ASST_REPORT_SCHEMA } }
-            })
-        });
-
-        if (!resp.ok) {
-            const errBody = await resp.json().catch(() => null);
-            const msg = errBody && errBody.error && errBody.error.message ? errBody.error.message : ('HTTP ' + resp.status);
-            throw new Error(resp.status === 401 ? 'Clé API invalide' : msg);
-        }
-
-        const result = await resp.json();
-
-        // Coût réel à partir des tokens consommés
-        const usage = result.usage || {};
+    const bill = usage => {
         const costUsd = (usage.input_tokens || 0) * ASST_PRICE_USD_PER_MTOK.input / 1e6
             + (usage.output_tokens || 0) * ASST_PRICE_USD_PER_MTOK.output / 1e6;
         const costEur = costUsd * (cfg.usdToEur || 0.92);
         cfg.spentEur = (cfg.spentEur || 0) + costEur;
         if (cfg.balanceEur != null) cfg.balanceEur = Math.max(0, cfg.balanceEur - costEur);
         asstSaveCfg(cfg);
+        return costEur;
+    };
 
-        if (result.stop_reason === 'refusal') {
-            throw new Error('La requête a été refusée par les filtres de sécurité du modèle. Réessayez plus tard.');
-        }
-        if (result.stop_reason === 'max_tokens') {
-            throw new Error('Réponse tronquée (limite de tokens atteinte). Réessayez.');
+    try {
+        const baseBody = {
+            model: ASST_MODEL,
+            system: [{ type: 'text', text: ASST_SYSTEM_PROMPT }],
+            messages: [{ role: 'user', content: userText }],
+            output_config: { format: { type: 'json_schema', schema: ASST_REPORT_SCHEMA }, effort: 'high' }
+        };
+
+        let res = await asstCallClaudeStreaming(cfg.apiKey, Object.assign({ max_tokens: 32000 }, baseBody), onProgress);
+        let costEur = bill(res.usage);
+
+        // Le raisonnement du modèle consomme le même budget que la réponse :
+        // si la limite est atteinte, on relance une fois avec plus de marge
+        // et un raisonnement plus court.
+        if (res.stopReason === 'max_tokens') {
+            if (statusEl) statusEl.textContent = 'Réponse trop longue — nouvelle tentative avec plus de marge...';
+            const retryBody = Object.assign({ max_tokens: 64000 }, baseBody);
+            retryBody.output_config = { format: baseBody.output_config.format, effort: 'medium' };
+            res = await asstCallClaudeStreaming(cfg.apiKey, retryBody, onProgress);
+            costEur += bill(res.usage);
         }
 
-        const textBlock = (result.content || []).find(b => b.type === 'text');
-        if (!textBlock) throw new Error('Réponse vide du modèle');
-        const report = JSON.parse(textBlock.text);
+        if (res.stopReason === 'refusal') {
+            throw new Error('Requête refusée par les filtres de sécurité du modèle.');
+        }
+        if (res.stopReason === 'max_tokens') {
+            throw new Error('Réponse encore tronquée. Choisissez la période de 7 jours pour réduire le volume à analyser.');
+        }
+        if (!res.text.trim()) throw new Error('Réponse vide du modèle');
+
+        let report;
+        try {
+            report = JSON.parse(res.text);
+        } catch (e) {
+            throw new Error('Réponse illisible du modèle (JSON invalide)');
+        }
 
         const reports = asstGetReports();
-        reports.unshift({ ts: Date.now(), model: ASST_MODEL, costEur: Math.round(costEur * 100) / 100, report });
+        reports.unshift({
+            ts: Date.now(), model: res.model || ASST_MODEL,
+            costEur: Math.round(costEur * 100) / 100,
+            windowDays, periode: agg.periode, report
+        });
         localStorage.setItem(ASST_REPORTS_KEY, JSON.stringify(reports.slice(0, 5)));
 
         if (statusEl) statusEl.textContent = '';
@@ -4061,7 +4183,8 @@ function renderAsstLocalSummary() {
     if (!el) return;
     const data = asstGetData();
     if (!data) { el.innerHTML = ''; return; }
-    const agg = asstAggregate(data);
+    const win = asstGetCfg().windowDays === 7 ? 7 : 14;
+    const agg = asstAggregate(data, win);
     if (!agg) { el.innerHTML = ''; return; }
     const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
 
@@ -4085,16 +4208,25 @@ function renderAsstLocalSummary() {
     });
     html += '</div>';
     html += '<h4 class="asst-sub">Par plage horaire de la pompe</h4>';
-    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr><th>Plage</th><th>Ratio</th><th>TIR</th><th>&lt;70</th><th>Moy.</th><th>Ratio obs.</th></tr></thead><tbody>';
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr><th>Plage</th><th>Ratio</th>'
+        + '<th>Ratio obs.</th><th>TIR</th><th>&lt;70</th><th>Moy.</th><th>Basal prog.</th><th>Δ Ctrl-IQ</th></tr></thead><tbody>';
     agg.plages.forEach(p => {
+        const d = p.ajustement_controliq_u_h;
+        const dColor = d == null ? '' : d > 0.02 ? 'var(--warning)' : d < -0.02 ? 'var(--accent-light)' : 'var(--text-dim)';
         html += '<tr><td>' + asstEsc(p.debut) + '-' + asstEsc(p.fin) + '</td>'
             + '<td>' + (p.ratio_actuel != null ? p.ratio_actuel : '—') + '</td>'
+            + '<td>' + (p.ratio_effectif_observe != null ? p.ratio_effectif_observe : '—') + '</td>'
             + '<td>' + (p.tir_pct != null ? p.tir_pct + '%' : '—') + '</td>'
             + '<td>' + (p.hypo_pct != null ? p.hypo_pct + '%' : '—') + '</td>'
             + '<td>' + (p.glycemie_moyenne != null ? p.glycemie_moyenne : '—') + '</td>'
-            + '<td>' + (p.ratio_effectif_observe != null ? p.ratio_effectif_observe : '—') + '</td></tr>';
+            + '<td>' + (p.basal_profil_u_h != null ? p.basal_profil_u_h : '—') + '</td>'
+            + '<td style="color:' + dColor + '">' + (d != null ? (d > 0 ? '+' : '') + d : '—') + '</td></tr>';
     });
-    html += '</tbody></table></div></div>';
+    html += '</tbody></table></div>';
+    html += '<p class="asst-dim">Bolus : données de la pompe. Glucides : FollowDIA sur '
+        + agg.sources.jours_glucides_followdia + ' j, pompe sur ' + agg.sources.jours_glucides_pompe + ' j'
+        + (agg.sources.jours_sans_glucides ? ', aucun sur ' + agg.sources.jours_sans_glucides + ' j' : '') + '. '
+        + 'Δ Ctrl-IQ = basal délivré − basal programmé.</p></div>';
     el.innerHTML = html;
 }
 
@@ -4145,7 +4277,15 @@ function renderAsstReport() {
     el.innerHTML = html;
 }
 
+function updateAsstWindowButtons() {
+    const w = asstGetCfg().windowDays === 7 ? 7 : 14;
+    $$('.asst-win-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.win, 10) === w);
+    });
+}
+
 function renderAssistant() {
+    updateAsstWindowButtons();
     renderAsstDataStatus();
     renderAsstPumpProfile();
     renderAsst48h();
@@ -4189,6 +4329,14 @@ function initAssistant() {
         renderAsstBalance();
     };
     [keyEl, balEl, rateEl].forEach(el => { if (el) el.addEventListener('change', saveCfgFromInputs); });
+
+    $$('.asst-win-btn').forEach(b => b.addEventListener('click', () => {
+        const c = asstGetCfg();
+        c.windowDays = parseInt(b.dataset.win, 10) === 7 ? 7 : 14;
+        asstSaveCfg(c);
+        updateAsstWindowButtons();
+        renderAsstLocalSummary();
+    }));
 
     const analyzeBtn = $('#btn-asst-analyze');
     if (analyzeBtn) analyzeBtn.addEventListener('click', asstRunAnalysis);

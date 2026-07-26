@@ -1551,6 +1551,25 @@ canvas {
     color: var(--warning);
 }
 
+.asst-field-label {
+    display: block;
+    font-size: calc(12px * var(--fs, 1));
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.asst-window-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.asst-win-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
 .asst-diag {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: calc(10px * var(--fs, 1));
