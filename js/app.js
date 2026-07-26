@@ -3085,10 +3085,26 @@ function mdAsList(v) {
     return [];
 }
 
-// Une clé n'est une date que si elle en a strictement la forme
-// (sinon « 0 » ou « 12 » seraient interprétés comme des dates)
+// Une clé peut porter la date de la journée. On accepte tous les formats
+// de date analysables, mais jamais un nombre seul : « 0 » ou « 12 » sont
+// des indices de tableau, et new Date("0") donnerait le 1er janvier 2000.
 function mdDateKey(k) {
-    return /^\d{4}-\d{2}-\d{2}$/.test(String(k)) ? String(k) : null;
+    const s = String(k);
+    if (/^\d{1,4}$/.test(s)) return null;
+    return mdNormalizeDate(s);
+}
+
+// Date la plus ancienne présente dans une réponse (pour la pagination)
+function mdMinDate(raw) {
+    let min = null;
+    const keep = d => { if (d && (!min || d < min)) min = d; };
+    mdHarvest(raw, {
+        entry: (e, h) => keep(mdNormalizeDate(e.date || e.day) || h),
+        cgm: (p, h) => keep(mdNormalizeDate(p.date || p.datetime) || h),
+        cl: (p, h) => keep(mdNormalizeDate(p.start) || h),
+        pump: () => {}
+    });
+    return min;
 }
 
 // Parcourt toute la réponse et reconnaît les données à leur FORME plutôt
@@ -3190,14 +3206,24 @@ function mdCgmValue(raw) {
 function mdNormalizeEntry(e) {
     const o = { t: mdNormalizeTime(e.time || e.date) };
     if (e.insulin) {
-        o.ins = {
-            b: parseFloat(e.insulin.bolus) || 0,
-            c: parseFloat(e.insulin.bolus_corr) || 0
-        };
+        const b = parseFloat(e.insulin.bolus) || 0;
+        const c = parseFloat(e.insulin.bolus_corr) || 0;
+        if (b || c) o.ins = { b, c };
+        const basal = parseFloat(e.insulin.basal);
+        if (!isNaN(basal)) o.basal = basal;
+        // Tout autre champ numérique d'insuline est conservé tel quel :
+        // c'est ce qui permet de voir ce que myDiabby renvoie réellement
+        // (basale utilisateur, basale modifiée par Control-IQ, etc.)
+        Object.keys(e.insulin).forEach(k => {
+            if (['bolus', 'bolus_corr', 'basal', 'device', 'datas'].indexOf(k) >= 0) return;
+            const v = parseFloat(e.insulin[k]);
+            if (!isNaN(v)) { o.x = o.x || {}; o.x[k] = v; }
+        });
     }
     if (e.meal && e.meal.carb != null) o.carb = parseFloat(e.meal.carb) || 0;
     if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
-    return (o.t && (o.ins || o.carb != null || o.gly != null)) ? o : null;
+    const useful = o.ins || o.basal != null || o.x || o.carb != null || o.gly != null;
+    return (o.t && useful) ? o : null;
 }
 
 // Transforme une ou plusieurs réponses brutes en payload followdia-mydiabby-v1.
@@ -3228,7 +3254,8 @@ function mdBuildPayload(rawList, pumpRaw) {
             const o = mdNormalizeEntry(e);
             if (!o) return;
             const key = 'e|' + ds + '|' + o.t + '|' + (o.ins ? o.ins.b + '/' + o.ins.c : '')
-                + '|' + (o.carb != null ? o.carb : '') + '|' + (o.gly != null ? o.gly : '');
+                + '|' + (o.carb != null ? o.carb : '') + '|' + (o.gly != null ? o.gly : '')
+                + '|' + (o.basal != null ? o.basal : '') + '|' + (o.x ? JSON.stringify(o.x) : '');
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).entries.push(o);
@@ -3324,18 +3351,31 @@ async function asstSyncMyDiabby() {
         // L'API se requête par fenêtres de dates (datefirst / datelast) ;
         // on balaie 90 jours par tranches de 15 jours.
         const fmt = d => d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-        const chunkDays = 15, totalDays = 90;
+        const dayBefore = ds => fmt(new Date(new Date(ds + 'T12:00:00').getTime() - 86400000));
+        const chunkDays = 10, totalDays = 90;
         const raws = [];
         for (let offset = 0; offset < totalDays; offset += chunkDays) {
-            const last = new Date(Date.now() - offset * 86400000);
-            const first = new Date(Date.now() - Math.min(offset + chunkDays - 1, totalDays - 1) * 86400000);
+            const firstStr = fmt(new Date(Date.now() - Math.min(offset + chunkDays - 1, totalDays - 1) * 86400000));
+            let lastStr = fmt(new Date(Date.now() - offset * 86400000));
             if (statusEl) {
                 statusEl.textContent = 'Récupération des données... ' + Math.round(offset / totalDays * 100) + '%';
             }
-            try {
-                raws.push(await mdApiGet(token, '/api/data?datefirst=' + fmt(first) + '&datelast=' + fmt(last)));
-            } catch (e) {
-                console.warn('Fenêtre ' + fmt(first) + '→' + fmt(last) + ' ignorée :', e.message);
+            // `end: false` signale que la fenêtre est tronquée : on repart
+            // de la plus ancienne date reçue pour récupérer la suite.
+            for (let page = 0; page < 5; page++) {
+                let raw;
+                try {
+                    raw = await mdApiGet(token, '/api/data?datefirst=' + firstStr + '&datelast=' + lastStr);
+                } catch (e) {
+                    console.warn('Fenêtre ' + firstStr + '→' + lastStr + ' ignorée :', e.message);
+                    break;
+                }
+                raws.push(raw);
+                if (raw.end !== false) break;
+                const min = mdMinDate(raw);
+                if (!min || min <= firstStr) break;
+                lastStr = dayBefore(min);
+                if (lastStr < firstStr) break;
             }
         }
         if (!raws.length) throw new Error('Aucune réponse de myDiabby');
@@ -3416,7 +3456,15 @@ function asstBuildSlots(pumpSettings) {
         if (v == null && list.length) v = list[list.length - 1][key];
         return v;
     };
-    const starts = [...new Set(ratios.map(r => r.start))].sort((a, b) => a - b);
+    const targets = (pumpSettings.targets && pumpSettings.targets[sched]) || [];
+    // Le découpage réunit toutes les frontières : une plage peut changer de
+    // basal sans changer de ratio, et le profil doit rester fidèle.
+    const starts = [...new Set([].concat(
+        ratios.map(r => r.start), isfs.map(r => r.start),
+        basals.map(r => r.start), targets.map(r => r.start)
+    ))].filter(s => s != null).sort((a, b) => a - b);
+    if (!starts.length) return [];
+    if (starts[0] !== 0) starts.unshift(0);
     return starts.map((start, i) => ({
         start,
         end: i + 1 < starts.length ? starts[i + 1] : 24 * 3600000,
@@ -3425,6 +3473,7 @@ function asstBuildSlots(pumpSettings) {
         ratio: valueAt(ratios, 'amount', start),
         isf: valueAt(isfs, 'amount', start),
         basal: valueAt(basals, 'rate', start),
+        target: valueAt(targets, 'target', start),
     }));
 }
 
@@ -3786,6 +3835,163 @@ function renderAsstDataStatus() {
     if (clearBtn) clearBtn.classList.remove('hidden');
 }
 
+// Profil de pompe complet : toutes les plages et leurs paramètres
+function renderAsstPumpProfile() {
+    const el = $('#asst-pump-profile');
+    if (!el) return;
+    const data = asstGetData();
+    const ps = data && data.pumpSettings;
+    if (!ps) {
+        el.innerHTML = data
+            ? '<div class="card"><h3>Profil de pompe</h3><p class="asst-warn">Réglages de pompe non reçus de myDiabby.</p></div>'
+            : '';
+        return;
+    }
+    const slots = asstBuildSlots(ps);
+    const total = slots.reduce((a, s) => a + (s.basal || 0) * (s.end - s.start) / 3600000, 0);
+    let html = '<div class="card"><h3>Profil de pompe' + (ps.activeSchedule ? ' — ' + asstEsc(ps.activeSchedule) : '') + '</h3>';
+    if (ps.date) {
+        html += '<p class="asst-dim">Réglages du ' + asstEsc(String(ps.date).slice(0, 10))
+            + (ps.model ? ' — ' + asstEsc(ps.model) : '') + '</p>';
+    }
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr>'
+        + '<th>Plage</th><th>Basal U/h</th><th>Ratio g/U</th><th>Sensib.</th><th>Cible</th></tr></thead><tbody>';
+    slots.forEach(s => {
+        html += '<tr><td>' + asstEsc(s.debut) + '–' + asstEsc(s.fin) + '</td>'
+            + '<td>' + (s.basal != null ? s.basal : '—') + '</td>'
+            + '<td>' + (s.ratio != null ? s.ratio : '—') + '</td>'
+            + '<td>' + (s.isf != null ? s.isf : '—') + '</td>'
+            + '<td>' + (s.target != null ? s.target : '—') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<p class="asst-dim">' + slots.length + ' plages — basal quotidien du profil : '
+        + Math.round(total * 100) / 100 + ' U/24 h</p></div>';
+    el.innerHTML = html;
+}
+
+// Extrait des 48 dernières heures pour vérifier ce qui a été récupéré
+function renderAsst48h() {
+    const el = $('#asst-check48');
+    if (!el) return;
+    const data = asstGetData();
+    if (!data || !data.days.length) { el.innerHTML = ''; return; }
+
+    const slots = data.pumpSettings ? asstBuildSlots(data.pumpSettings) : [];
+    const profileBasalAt = ms => {
+        for (const s of slots) if (ms >= s.start && ms < s.end) return s.basal;
+        return null;
+    };
+
+    // Fenêtre calée sur la dernière donnée disponible, pas sur l'heure actuelle
+    const lastDay = data.days[data.days.length - 1];
+    let endTs = new Date(lastDay.date + 'T23:59:59').getTime();
+    if (lastDay.cgm.length) endTs = Math.max(endTs, lastDay.cgm[lastDay.cgm.length - 1][0]);
+    const startTs = endTs - 48 * 3600000;
+
+    const buckets = [];
+    for (let t = startTs; t < endTs; t += 2 * 3600000) {
+        buckets.push({ t, cgm: [], bolus: 0, corr: 0, carbs: 0, basalRec: [], modes: {} });
+    }
+    const bucketFor = ts => buckets[Math.floor((ts - startTs) / (2 * 3600000))];
+
+    data.days.forEach(day => {
+        const dayStart = new Date(day.date + 'T00:00:00').getTime();
+        day.cgm.forEach(p => {
+            const b = p[0] >= startTs && p[0] < endTs ? bucketFor(p[0]) : null;
+            if (b) b.cgm.push(p[1]);
+        });
+        day.entries.forEach(e => {
+            const ts = dayStart + asstHmToMs(e.t);
+            if (ts < startTs || ts >= endTs) return;
+            const b = bucketFor(ts);
+            if (!b) return;
+            if (e.ins) { b.bolus += e.ins.b; b.corr += e.ins.c; }
+            if (e.carb != null) b.carbs += e.carb;
+            if (e.basal != null) b.basalRec.push(e.basal);
+        });
+        day.cl.forEach(p => {
+            const s = Date.parse(p.s), en = Date.parse(p.e);
+            if (isNaN(s) || isNaN(en)) return;
+            buckets.forEach(b => {
+                const bEnd = b.t + 2 * 3600000;
+                const overlap = Math.min(en, bEnd) - Math.max(s, b.t);
+                if (overlap > 0) b.modes[p.m || '?'] = (b.modes[p.m || '?'] || 0) + overlap;
+            });
+        });
+    });
+
+    const median = arr => {
+        if (!arr.length) return null;
+        const s = [...arr].sort((a, b) => a - b);
+        return s[Math.floor(s.length / 2)];
+    };
+    const fmtH = ts => {
+        const d = new Date(ts);
+        return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2)
+            + ' ' + ('0' + d.getHours()).slice(-2) + 'h';
+    };
+
+    const totals = buckets.reduce((a, b) => ({
+        cgm: a.cgm + b.cgm.length, bolus: a.bolus + b.bolus + b.corr,
+        carbs: a.carbs + b.carbs, basal: a.basal + b.basalRec.length
+    }), { cgm: 0, bolus: 0, carbs: 0, basal: 0 });
+
+    let html = '<div class="card"><h3>Vérification — 48 dernières heures</h3>';
+    html += '<p class="asst-dim">Du ' + fmtH(startTs) + ' au ' + fmtH(endTs) + ' — '
+        + totals.cgm + ' mesures capteur, ' + Math.round(totals.bolus * 10) / 10 + ' U de bolus, '
+        + Math.round(totals.carbs) + ' g de glucides, ' + totals.basal + ' relevés de basal.</p>';
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr>'
+        + '<th>Créneau</th><th>Glyc. méd.</th><th>n</th><th>Basal profil</th><th>Basal reçu</th>'
+        + '<th>Bolus</th><th>Gluc.</th><th>Control-IQ</th></tr></thead><tbody>';
+    buckets.forEach(b => {
+        const med = median(b.cgm);
+        const localMs = (new Date(b.t).getHours() * 3600 + new Date(b.t).getMinutes() * 60) * 1000;
+        const prof = profileBasalAt(localMs);
+        const rec = b.basalRec.length ? Math.round(b.basalRec.reduce((x, y) => x + y, 0) / b.basalRec.length * 1000) / 1000 : null;
+        const mode = Object.keys(b.modes).sort((x, y) => b.modes[y] - b.modes[x])[0] || '—';
+        const bolusTxt = (b.bolus || b.corr)
+            ? (Math.round(b.bolus * 100) / 100) + (b.corr ? ' +' + (Math.round(b.corr * 100) / 100) : '')
+            : '—';
+        html += '<tr><td>' + fmtH(b.t) + '</td>'
+            + '<td' + (med != null ? ' style="color:' + (med < 70 ? 'var(--danger)' : med <= 180 ? 'var(--success)' : 'var(--warning)') + '"' : '') + '>'
+            + (med != null ? med : '—') + '</td>'
+            + '<td>' + (b.cgm.length || '—') + '</td>'
+            + '<td>' + (prof != null ? prof : '—') + '</td>'
+            + '<td>' + (rec != null ? rec : '—') + '</td>'
+            + '<td>' + bolusTxt + '</td>'
+            + '<td>' + (b.carbs ? Math.round(b.carbs) : '—') + '</td>'
+            + '<td>' + asstEsc(mode) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Derniers évènements bruts : montre exactement ce que myDiabby a renvoyé
+    const events = [];
+    data.days.slice(-3).forEach(day => {
+        day.entries.forEach(e => events.push({ d: day.date, e }));
+    });
+    const recent = events.slice(-20);
+    if (recent.length) {
+        html += '<h4 class="asst-sub">Derniers évènements reçus</h4><div class="asst-table-wrap">'
+            + '<table class="asst-table"><thead><tr><th>Date</th><th>Heure</th><th>Contenu</th></tr></thead><tbody>';
+        recent.forEach(({ d, e }) => {
+            const parts = [];
+            if (e.ins) parts.push('bolus ' + e.ins.b + ' U' + (e.ins.c ? ' (dont corr. ' + e.ins.c + ')' : ''));
+            if (e.carb != null) parts.push(e.carb + ' g');
+            if (e.gly != null) parts.push('glyc. capillaire ' + e.gly);
+            if (e.basal != null) parts.push('basal ' + e.basal + ' U/h');
+            if (e.x) Object.keys(e.x).forEach(k => parts.push(k + ' ' + e.x[k]));
+            html += '<tr><td>' + asstEsc(d.slice(5)) + '</td><td>' + asstEsc(e.t) + '</td><td>'
+                + asstEsc(parts.join(' · ')) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+    if (!totals.basal) {
+        html += '<p class="asst-warn">⚠ Aucun relevé de basal reçu : myDiabby ne transmet que le basal du profil, pas les ajustements Control-IQ minute par minute.</p>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+}
+
 function renderAsstLocalSummary() {
     const el = $('#asst-local-summary');
     if (!el) return;
@@ -3877,6 +4083,8 @@ function renderAsstReport() {
 
 function renderAssistant() {
     renderAsstDataStatus();
+    renderAsstPumpProfile();
+    renderAsst48h();
     renderAsstLocalSummary();
     renderAsstBalance();
     renderAsstReport();
