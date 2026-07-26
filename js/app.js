@@ -1621,47 +1621,62 @@ function synthValuesSince(fromMs) {
     return synthData.filter(e => e.date >= fromMs).map(e => e.sgv || e.value);
 }
 
-function tirBarHtml(bands) {
-    const segs = [
-        ['vlow', 'var(--tir-vlow)'],
-        ['low', 'var(--tir-low)'],
-        ['inRange', 'var(--tir-in)'],
-        ['high', 'var(--tir-high)'],
-        ['vhigh', 'var(--tir-vhigh)'],
-    ];
-    return `<div class="tir-bar">${segs
-        .filter(([k]) => bands[k] > 0)
-        .map(([k, color]) => `<div class="tir-seg" style="width:${bands[k]}%;background:${color}"></div>`)
+// Zones TIR de la plus haute à la plus basse (ordre d'empilement vertical)
+const TIR_SEGS_TOPDOWN = [
+    ['vhigh', 'var(--tir-vhigh)', '&gt; 250'],
+    ['high', 'var(--tir-high)', '181–250'],
+    ['inRange', 'var(--tir-in)', '70–180 (cible)'],
+    ['low', 'var(--tir-low)', '54–69'],
+    ['vlow', 'var(--tir-vlow)', '&lt; 54'],
+];
+
+const TIR_BAR_H = 210; // hauteur des barres verticales en px
+
+function tirLegendHtml() {
+    return `<div class="tir-legend-top">${TIR_SEGS_TOPDOWN
+        .map(([, color, label]) => `<div class="tir-legend-item"><span class="tir-dot" style="background:${color}"></span>${label}</div>`)
         .join('')}</div>`;
 }
 
-function tirLegendHtml(bands) {
-    const items = [
-        ['var(--tir-vhigh)', '&gt; 250', bands.vhigh],
-        ['var(--tir-high)', '181–250', bands.high],
-        ['var(--tir-in)', '70–180', bands.inRange],
-        ['var(--tir-low)', '54–69', bands.low],
-        ['var(--tir-vlow)', '&lt; 54', bands.vlow],
-    ];
-    return `<div class="tir-legend">${items
-        .map(([color, label, pct]) => `<div class="tir-legend-item"><span class="tir-dot" style="background:${color}"></span>${label}<b>${round1(pct)}%</b></div>`)
-        .join('')}</div>`;
-}
-
-function tirPeriodHtml(label, bands) {
+function tirColumnHtml(label, bands) {
     if (!bands || bands.n < 12) {
-        return `<div class="tir-period">
-            <div class="tir-period-header"><span>${label}</span><span class="tir-nodata">Données insuffisantes</span></div>
+        return `<div class="tirv-col">
+            <div class="tirv-title">${label}</div>
+            <div class="tirv-nodata">Données insuffisantes</div>
         </div>`;
     }
-    const tirColor = bands.inRange >= 70 ? 'var(--success)' : bands.inRange >= 50 ? 'var(--warning)' : 'var(--danger)';
-    return `<div class="tir-period">
-        <div class="tir-period-header">
-            <span>${label}</span>
-            <span class="tir-period-pct" style="color:${tirColor}">${round1(bands.inRange)}% dans la cible</span>
+    const segs = TIR_SEGS_TOPDOWN
+        .map(([k, color]) => ({ pct: bands[k], color }))
+        .filter(s => s.pct > 0);
+
+    // Position verticale des étiquettes : centre du segment, puis on écarte
+    // celles qui se chevaucheraient (segments trop fins)
+    const gap = Math.round(16 * fontScale());
+    let y = 0;
+    segs.forEach(s => {
+        const h = s.pct / 100 * TIR_BAR_H;
+        s.center = y + h / 2;
+        y += h;
+    });
+    if (segs.length && segs[0].center < gap / 2) segs[0].center = gap / 2;
+    for (let i = 1; i < segs.length; i++) {
+        if (segs[i].center < segs[i - 1].center + gap) segs[i].center = segs[i - 1].center + gap;
+    }
+    for (let i = segs.length - 1; i >= 0; i--) {
+        const max = TIR_BAR_H - gap / 2 - (segs.length - 1 - i) * gap;
+        if (segs[i].center > max) segs[i].center = max;
+    }
+
+    const barHtml = segs.map(s => `<div class="tirv-seg" style="height:${s.pct}%;background:${s.color}"></div>`).join('');
+    const labelsHtml = segs.map(s => `<span class="tirv-label" style="top:${Math.round(s.center)}px;color:${s.color}">${round1(s.pct)}%</span>`).join('');
+
+    return `<div class="tirv-col">
+        <div class="tirv-title">${label}</div>
+        <div class="tirv-pct">${round1(bands.inRange)}%</div>
+        <div class="tirv-wrap">
+            <div class="tirv-bar">${barHtml}</div>
+            <div class="tirv-labels">${labelsHtml}</div>
         </div>
-        ${tirBarHtml(bands)}
-        ${tirLegendHtml(bands)}
     </div>`;
 }
 
@@ -1719,9 +1734,12 @@ async function renderSynthese() {
     content.innerHTML = `
         <div class="card">
             <h3>Temps dans la cible (TIR)</h3>
-            ${tirPeriodHtml("Aujourd'hui", bandsDay)}
-            ${tirPeriodHtml('7 derniers jours', bands7)}
-            ${tirPeriodHtml('30 derniers jours', bands30)}
+            ${tirLegendHtml()}
+            <div class="tirv-row">
+                ${tirColumnHtml("Aujourd'hui", bandsDay)}
+                ${tirColumnHtml('7 jours', bands7)}
+                ${tirColumnHtml('30 jours', bands30)}
+            </div>
             <p class="synth-note">Objectifs (ATTD 2019) : &ge; 70% entre 70 et 180 mg/dl &bull; &lt; 4% sous 70 &bull; &lt; 1% sous 54 &bull; &lt; 25% au-dessus de 180 &bull; &lt; 5% au-dessus de 250.</p>
         </div>
         ${statsHtml}`;

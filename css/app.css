@@ -1243,68 +1243,94 @@ canvas {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Synthese tab: TIR / GMI / CV */
-.tir-period {
-    margin-bottom: 18px;
-}
-
-.tir-period-header {
+.tir-legend-top {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 6px;
-    font-size: calc(14px * var(--fs, 1));
-    font-weight: 600;
-    color: var(--text-bright);
-}
-
-.tir-period-pct {
-    font-size: calc(15px * var(--fs, 1));
-    font-weight: 700;
-}
-
-.tir-nodata {
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
     font-size: calc(12px * var(--fs, 1));
-    font-weight: 400;
-    color: var(--text-dim);
-}
-
-.tir-bar {
-    display: flex;
-    height: 26px;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-}
-
-.tir-seg {
-    height: 100%;
-}
-
-.tir-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    margin-top: 6px;
-    font-size: calc(11px * var(--fs, 1));
     color: var(--text);
 }
 
 .tir-legend-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     white-space: nowrap;
 }
 
-.tir-legend-item b {
-    font-size: calc(12px * var(--fs, 1));
-}
-
 .tir-dot {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 3px;
     flex-shrink: 0;
+}
+
+.tirv-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.tirv-col {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+}
+
+.tirv-title {
+    font-size: calc(13px * var(--fs, 1));
+    font-weight: 600;
+    color: var(--text-bright);
+}
+
+.tirv-pct {
+    font-size: calc(17px * var(--fs, 1));
+    font-weight: 700;
+    color: var(--tir-in);
+    margin: 2px 0 8px;
+}
+
+.tirv-wrap {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    height: 210px;
+}
+
+.tirv-bar {
+    width: 34px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.tirv-seg {
+    width: 100%;
+}
+
+.tirv-labels {
+    position: relative;
+    width: 44px;
+    text-align: left;
+}
+
+.tirv-label {
+    position: absolute;
+    left: 0;
+    transform: translateY(-50%);
+    font-size: calc(11px * var(--fs, 1));
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.tirv-nodata {
+    font-size: calc(12px * var(--fs, 1));
+    color: var(--text-dim);
+    margin-top: 20px;
 }
 
 .synth-cards {
