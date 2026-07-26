@@ -36,6 +36,7 @@
             <button class="nav-tab" data-tab="synthese">Synthèse</button>
             <button class="nav-tab" data-tab="dashboard">Tableau de bord</button>
             <button class="nav-tab" data-tab="foods">Aliments</button>
+            <button class="nav-tab" data-tab="assistant">Assistant</button>
         </nav>
 
         <!-- Tab Content -->
@@ -132,6 +133,43 @@
                         <button id="btn-add-food" class="btn btn-secondary">Ajouter un aliment</button>
                     </div>
                 </div>
+            </div>
+            <!-- Assistant Tab -->
+            <div id="tab-assistant" class="tab-panel">
+                <div class="card">
+                    <h3>Données myDiabby</h3>
+                    <div id="asst-data-status" class="asst-status"></div>
+                    <div class="asst-actions">
+                        <button id="btn-asst-import" class="btn btn-secondary">Importer un fichier</button>
+                        <input type="file" id="asst-file-input" accept="application/json,.json" style="display:none">
+                        <button id="btn-asst-bookmarklet" class="btn btn-secondary">Installer l'extracteur</button>
+                        <button id="btn-asst-clear" class="btn btn-secondary hidden">Supprimer les données</button>
+                    </div>
+                    <div id="asst-bookmarklet-help" class="asst-help hidden"></div>
+                </div>
+                <div id="asst-local-summary"></div>
+                <div class="card">
+                    <h3>Analyse IA (révision des paramètres)</h3>
+                    <p class="asst-paid-note">⚠ Service payant : chaque analyse utilise l'API Claude d'Anthropic et consomme du crédit de votre compte API.</p>
+                    <div class="input-group">
+                        <label>Clé API Anthropic</label>
+                        <input type="text" id="asst-api-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="asst-cfg-row">
+                        <div class="input-group">
+                            <label>Solde du compte (€)</label>
+                            <input type="number" id="asst-balance" step="0.01" inputmode="decimal" autocomplete="off" placeholder="ex: 20">
+                        </div>
+                        <div class="input-group">
+                            <label>Taux USD→EUR</label>
+                            <input type="number" id="asst-usd-eur" step="0.01" inputmode="decimal" autocomplete="off" placeholder="0.92">
+                        </div>
+                    </div>
+                    <div id="asst-balance-display" class="asst-balance"></div>
+                    <button id="btn-asst-analyze" class="btn btn-primary">Lancer l'analyse IA</button>
+                    <div id="asst-analyze-status" class="asst-status"></div>
+                </div>
+                <div id="asst-report"></div>
             </div>
         </main>
 

@@ -2954,3 +2954,698 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionStorage.removeItem('followdia_auth');
     initApp();
 });
+
+// ============================================================
+// ASSISTANT IA — révision des paramètres d'insulinothérapie
+// Module isolé : clés localStorage dédiées, jamais synchronisées
+// via le Gist ; ne modifie aucun comportement existant.
+// ============================================================
+const ASST_DATA_KEY = 'followdia_assistant_data';
+const ASST_CFG_KEY = 'followdia_assistant_cfg';
+const ASST_REPORTS_KEY = 'followdia_assistant_reports';
+const ASST_MODEL = 'claude-opus-5';
+const ASST_PRICE_USD_PER_MTOK = { input: 5, output: 25 };
+const ASST_STALE_DAYS = 7;
+const ASST_WINDOW_DAYS = 14; // fenêtre d'analyse sur les données importées
+
+function asstEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function asstGetCfg() {
+    try {
+        const c = JSON.parse(localStorage.getItem(ASST_CFG_KEY));
+        if (c && typeof c === 'object') return c;
+    } catch (e) {}
+    return { apiKey: '', balanceEur: null, usdToEur: 0.92, spentEur: 0 };
+}
+
+function asstSaveCfg(cfg) {
+    localStorage.setItem(ASST_CFG_KEY, JSON.stringify(cfg));
+}
+
+function asstGetData() {
+    try {
+        const d = JSON.parse(localStorage.getItem(ASST_DATA_KEY));
+        if (d && d.format === 'followdia-mydiabby-v1' && Array.isArray(d.days)) return d;
+    } catch (e) {}
+    return null;
+}
+
+function asstGetReports() {
+    try {
+        const r = JSON.parse(localStorage.getItem(ASST_REPORTS_KEY));
+        if (Array.isArray(r)) return r;
+    } catch (e) {}
+    return [];
+}
+
+// ------------------------------------------------------------
+// Bookmarklet d'extraction (à exécuter sur app.mydiabby.com)
+// ------------------------------------------------------------
+function asstExtractorSource() {
+    return function () {
+        try {
+            var inj = angular.element(document.body).injector();
+            var pds = inj.get('PatientDataService');
+            var patient = pds.getPatient();
+            var days = pds.getDataByDay(new Date().toISOString().slice(0, 10));
+            var cutoff = Date.now() - 90 * 86400000;
+            var out = [];
+            days.forEach(function (d) {
+                var ds = d.date && d.date.format ? d.date.format('YYYY-MM-DD') : null;
+                if (!ds || new Date(ds + 'T12:00:00').getTime() < cutoff) return;
+                var cgm = (d.cgm || []).map(function (p) {
+                    return [Date.parse(p.date), Math.round(parseFloat(p.value) * 100)];
+                }).filter(function (p) { return !isNaN(p[0]) && p[1] > 20 && p[1] < 600; });
+                var entries = (d.data || []).map(function (e) {
+                    var t = e.time;
+                    if (t && t.format) t = t.format('HH:mm');
+                    else if (typeof t === 'string' && t.indexOf('T') >= 0) {
+                        var dt = new Date(t);
+                        t = ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
+                    }
+                    var o = { t: String(t || '') };
+                    if (e.insulin) o.ins = { b: parseFloat(e.insulin.bolus) || 0, c: parseFloat(e.insulin.bolus_corr) || 0 };
+                    if (e.meal && e.meal.carb != null) o.carb = e.meal.carb;
+                    if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
+                    return o;
+                }).filter(function (o) { return o.ins || o.carb != null || o.gly != null; });
+                var cl = (d.closed_loop || []).map(function (p) { return { s: p.start, e: p.end, m: p.mode }; });
+                if (cgm.length || entries.length) out.push({ date: ds, cgm: cgm, entries: entries, cl: cl });
+            });
+            out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+            var ps = patient.pumpsettings && patient.pumpsettings.current ? patient.pumpsettings.current : null;
+            var payload = {
+                format: 'followdia-mydiabby-v1',
+                exportedAt: new Date().toISOString(),
+                pumpSettings: ps ? {
+                    date: ps.date,
+                    activeSchedule: ps.data.activeSchedule,
+                    basal: ps.data.basalSchedules,
+                    carbRatios: ps.data.carbRatios,
+                    isf: ps.data.insulinSensitivities,
+                    targets: ps.data.bgTargets,
+                    model: ps.data.model || null
+                } : null,
+                days: out
+            };
+            var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'followdia_mydiabby.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            alert('Export FollowDIA : ' + out.length + ' jours exportes (fichier followdia_mydiabby.json).');
+        } catch (err) {
+            alert('Export FollowDIA impossible : ' + err.message + '. Ouvrez app.mydiabby.com et connectez-vous d abord.');
+        }
+    };
+}
+
+function asstBookmarkletUrl() {
+    const code = asstExtractorSource().toString().replace(/\n\s*/g, ' ');
+    return 'javascript:(' + encodeURIComponent(code) + ')()';
+}
+
+// ------------------------------------------------------------
+// Agrégation locale (gratuite) sur les données importées
+// ------------------------------------------------------------
+function asstHmToMs(hm) {
+    const parts = String(hm).split(':').map(Number);
+    return ((parts[0] || 0) * 60 + (parts[1] || 0)) * 60000;
+}
+
+function asstMsToHm(ms) {
+    const mins = Math.round(ms / 60000);
+    return ('0' + Math.floor(mins / 60) % 24).slice(-2) + ':' + ('0' + mins % 60).slice(-2);
+}
+
+// Construit les plages horaires unifiées à partir des réglages pompe
+function asstBuildSlots(pumpSettings) {
+    if (!pumpSettings) return [];
+    const sched = pumpSettings.activeSchedule;
+    const ratios = (pumpSettings.carbRatios && pumpSettings.carbRatios[sched]) || [];
+    const isfs = (pumpSettings.isf && pumpSettings.isf[sched]) || [];
+    const basals = (pumpSettings.basal && pumpSettings.basal[sched]) || [];
+    const valueAt = (list, key, start) => {
+        let v = null;
+        list.forEach(item => { if (item.start <= start) v = item[key]; });
+        if (v == null && list.length) v = list[list.length - 1][key];
+        return v;
+    };
+    const starts = [...new Set(ratios.map(r => r.start))].sort((a, b) => a - b);
+    return starts.map((start, i) => ({
+        start,
+        end: i + 1 < starts.length ? starts[i + 1] : 24 * 3600000,
+        debut: asstMsToHm(start),
+        fin: asstMsToHm(i + 1 < starts.length ? starts[i + 1] : 0),
+        ratio: valueAt(ratios, 'amount', start),
+        isf: valueAt(isfs, 'amount', start),
+        basal: valueAt(basals, 'rate', start),
+    }));
+}
+
+// Agrégats calculés sur la fenêtre d'analyse (pure : ne touche pas aux globals)
+function asstAggregate(data) {
+    const days = data.days.slice(-ASST_WINDOW_DAYS);
+    if (!days.length) return null;
+    const slots = asstBuildSlots(data.pumpSettings);
+
+    const localMs = ts => {
+        const d = new Date(ts);
+        return (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) * 1000;
+    };
+    const slotIndex = ms => {
+        for (let i = 0; i < slots.length; i++) {
+            if (ms >= slots[i].start && ms < slots[i].end) return i;
+        }
+        return slots.length ? slots.length - 1 : -1;
+    };
+
+    // Statistiques CGM globales + par plage + par heure
+    const allValues = [];
+    const perSlot = slots.map(() => ({ n: 0, in: 0, low: 0, vlow: 0, high: 0, vhigh: 0, sum: 0 }));
+    const perHour = Array.from({ length: 24 }, () => []);
+    days.forEach(day => {
+        (day.cgm || []).forEach(pt => {
+            const ts = pt[0], v = pt[1];
+            allValues.push(v);
+            perHour[new Date(ts).getHours()].push(v);
+            const si = slotIndex(localMs(ts));
+            if (si >= 0) {
+                const s = perSlot[si];
+                s.n++; s.sum += v;
+                if (v < 54) s.vlow++;
+                else if (v < 70) s.low++;
+                else if (v <= 180) s.in++;
+                else if (v <= 250) s.high++;
+                else s.vhigh++;
+            }
+        });
+    });
+    if (allValues.length < 100) return null;
+
+    const mean = allValues.reduce((a, b) => a + b, 0) / allValues.length;
+    const sd = Math.sqrt(allValues.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (allValues.length - 1));
+    const nIn = allValues.filter(v => v >= 70 && v <= 180).length;
+    const nLow = allValues.filter(v => v < 70).length;
+
+    const median = arr => {
+        if (!arr.length) return null;
+        const s = [...arr].sort((a, b) => a - b);
+        return s[Math.floor(s.length / 2)];
+    };
+
+    // Bolus, glucides et ratio effectif par plage
+    const slotStats = slots.map((slot, i) => {
+        const c = perSlot[i];
+        let carbs = 0, mealBolus = 0, corrBolus = 0, nBolus = 0, nMeals = 0;
+        days.forEach(day => {
+            (day.entries || []).forEach(e => {
+                const ms = asstHmToMs(e.t);
+                if (ms < slot.start || ms >= slot.end) return;
+                if (e.ins) { mealBolus += e.ins.b; corrBolus += e.ins.c; nBolus++; }
+                if (e.carb != null) { carbs += e.carb; nMeals++; }
+            });
+        });
+        return {
+            debut: slot.debut, fin: slot.fin,
+            ratio_actuel: slot.ratio, isf_actuel: slot.isf, basal_actuel: slot.basal,
+            tir_pct: c.n ? Math.round(c.in / c.n * 1000) / 10 : null,
+            hypo_pct: c.n ? Math.round((c.low + c.vlow) / c.n * 1000) / 10 : null,
+            hyper250_pct: c.n ? Math.round(c.vhigh / c.n * 1000) / 10 : null,
+            glycemie_moyenne: c.n ? Math.round(c.sum / c.n) : null,
+            glucides_totaux_g: Math.round(carbs),
+            bolus_repas_total_u: Math.round(mealBolus * 10) / 10,
+            bolus_correction_total_u: Math.round(corrBolus * 10) / 10,
+            nb_bolus: nBolus, nb_repas: nMeals,
+            ratio_effectif_observe: mealBolus > 0.5 ? Math.round(carbs / mealBolus * 10) / 10 : null,
+        };
+    });
+
+    // Excursions post-repas (repas >= 10 g) : montée max sur 3 h
+    const excursions = [];
+    days.forEach(day => {
+        const cgm = day.cgm || [];
+        if (!cgm.length) return;
+        const dayStart = new Date(cgm[Math.floor(cgm.length / 2)][0]).setHours(0, 0, 0, 0);
+        (day.entries || []).forEach(e => {
+            if (e.carb == null || e.carb < 10) return;
+            const mealTs = dayStart + asstHmToMs(e.t);
+            let start = null, peak = null;
+            cgm.forEach(pt => {
+                const ts = pt[0], v = pt[1];
+                if (Math.abs(ts - mealTs) < 15 * 60000 && (start == null || Math.abs(ts - mealTs) < Math.abs(start[0] - mealTs))) start = [ts, v];
+                if (ts > mealTs && ts <= mealTs + 3 * 3600000 && (peak == null || v > peak)) peak = v;
+            });
+            if (start && peak != null) {
+                excursions.push({ slot: slotIndex(asstHmToMs(e.t)), rise: peak - start[1], pic: peak });
+            }
+        });
+    });
+    slotStats.forEach((s, i) => {
+        const ex = excursions.filter(e => e.slot === i);
+        s.nb_repas_analyses = ex.length;
+        s.montee_postprandiale_moyenne = ex.length ? Math.round(ex.reduce((a, e) => a + e.rise, 0) / ex.length) : null;
+        s.pic_moyen = ex.length ? Math.round(ex.reduce((a, e) => a + e.pic, 0) / ex.length) : null;
+    });
+
+    // Couverture Control-IQ
+    let clOn = 0, clTotal = 0;
+    days.forEach(day => {
+        (day.cl || []).forEach(p => {
+            const dur = (Date.parse(p.e) - Date.parse(p.s)) || 0;
+            if (dur > 0) { clTotal += dur; if (p.m === 'on') clOn += dur; }
+        });
+    });
+
+    return {
+        periode: { debut: days[0].date, fin: days[days.length - 1].date, nb_jours: days.length },
+        global: {
+            nb_mesures_cgm: allValues.length,
+            glycemie_moyenne: Math.round(mean),
+            gmi_pct: Math.round((3.31 + 0.02392 * mean) * 10) / 10,
+            cv_pct: Math.round(sd / mean * 1000) / 10,
+            tir_70_180_pct: Math.round(nIn / allValues.length * 1000) / 10,
+            temps_sous_70_pct: Math.round(nLow / allValues.length * 1000) / 10,
+        },
+        controliq_actif_pct: clTotal > 0 ? Math.round(clOn / clTotal * 100) : null,
+        mediane_par_heure: perHour.map(median),
+        plages: slotStats,
+    };
+}
+
+// Croisement avec les données FollowDIA : % de bolus repas réellement fait
+function asstMealCompliance(startDate, endDate) {
+    const result = [];
+    MEALS.forEach(m => {
+        let sum = 0, n = 0;
+        Object.keys(state).forEach(date => {
+            if (date < startDate || date > endDate) return;
+            const md = state[date] && state[date][m.id];
+            if (!md || !md.foods || !md.foods.some(f => f.name)) return;
+            const t = calcMealTotals(md, m.id);
+            if (t.mealBolusUI > 0) { sum += Math.min(t.mealPct, 150); n++; }
+        });
+        result.push({ repas: m.label, pct_bolus_fait_moyen: n ? Math.round(sum / n) : null, nb_repas_saisis: n });
+    });
+    return result;
+}
+
+function asstFreshness(data) {
+    if (!data || !data.days.length) return null;
+    const last = data.days[data.days.length - 1].date;
+    const ageDays = Math.floor((Date.now() - new Date(last + 'T12:00:00').getTime()) / 86400000);
+    return { lastDate: last, ageDays };
+}
+
+// ------------------------------------------------------------
+// Appel Claude API
+// ------------------------------------------------------------
+const ASST_REPORT_SCHEMA = {
+    type: 'object',
+    properties: {
+        resume: { type: 'string' },
+        qualite_donnees: { type: 'string' },
+        plages_proposees: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    debut: { type: 'string' },
+                    fin: { type: 'string' },
+                    ratio_actuel: { type: 'number' },
+                    ratio_propose: { type: 'number' },
+                    isf_actuel: { type: 'number' },
+                    isf_propose: { type: 'number' },
+                    basal_actuel: { type: 'number' },
+                    basal_propose: { type: 'number' },
+                    justification: { type: 'string' }
+                },
+                required: ['debut', 'fin', 'ratio_actuel', 'ratio_propose', 'isf_actuel', 'isf_propose', 'basal_actuel', 'basal_propose', 'justification'],
+                additionalProperties: false
+            }
+        },
+        priorites: { type: 'array', items: { type: 'string' } },
+        avertissements: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['resume', 'qualite_donnees', 'plages_proposees', 'priorites', 'avertissements'],
+    additionalProperties: false
+};
+
+const ASST_SYSTEM_PROMPT = 'Tu es un assistant d\'aide à la décision destiné aux parents d\'un enfant vivant avec un diabète de type 1, traité par pompe Tandem t:slim X2 avec Control-IQ et capteur CGM. Tu raisonnes comme un diabétologue pédiatrique expérimenté spécialisé en insulinothérapie fonctionnelle.\n\n'
+    + 'Ta mission : à partir des données fournies (réglages actuels de la pompe, statistiques CGM par plage horaire, bolus, glucides, excursions post-prandiales, taux de réalisation des bolus repas), proposer des ajustements OPTIMAUX du découpage des plages horaires, des ratios glucidiques (g/U) et des sensibilités (mg/dl/U), avec pour objectif de maximiser le temps dans la cible 70-180 mg/dl SANS augmenter le risque d\'hypoglycémie.\n\n'
+    + 'Règles impératives :\n'
+    + '- Control-IQ module automatiquement la basale et fait des corrections automatiques ; les leviers principaux sont les ratios, les sensibilités et le programme basal de base. Tiens-en compte.\n'
+    + '- Ne propose jamais un changement de plus de 20 % d\'un paramètre en une seule étape.\n'
+    + '- Si le pourcentage de bolus repas réellement fait est bas sur un repas, l\'hyperglycémie post-prandiale peut venir de là et non du ratio : signale-le au lieu de renforcer le ratio.\n'
+    + '- Priorise la sécurité : traite d\'abord les hypoglycémies, ensuite les hyperglycémies. Sois particulièrement prudent la nuit.\n'
+    + '- Si les données sont insuffisantes ou anciennes pour une plage, dis-le dans qualite_donnees et ne propose pas de changement sur cette plage (valeur proposée = valeur actuelle).\n'
+    + '- Le découpage proposé peut fusionner ou scinder des plages existantes si les données le justifient ; les plages doivent couvrir 24 h sans trou ni chevauchement, en commençant à 00:00.\n'
+    + '- Quand un paramètre ne change pas, mets la valeur proposée égale à la valeur actuelle.\n'
+    + '- Dans les avertissements, rappelle toujours que ces propositions sont une aide à la décision à valider avec l\'équipe de diabétologie avant toute modification sur la pompe.\n'
+    + '- Réponds en français.';
+
+function asstEstimateCostEur(cfg, inputChars) {
+    const inTok = Math.ceil(inputChars / 3.2) + 800;
+    const outTok = 3000;
+    const usd = inTok * ASST_PRICE_USD_PER_MTOK.input / 1e6 + outTok * ASST_PRICE_USD_PER_MTOK.output / 1e6;
+    return usd * (cfg.usdToEur || 0.92);
+}
+
+async function asstRunAnalysis() {
+    const statusEl = $('#asst-analyze-status');
+    const cfg = asstGetCfg();
+    const data = asstGetData();
+
+    if (!cfg.apiKey) { toast('Renseignez la clé API Anthropic'); return; }
+    if (!data) { toast('Importez d\'abord les données myDiabby'); return; }
+
+    const agg = asstAggregate(data);
+    if (!agg) { toast('Pas assez de données CGM pour analyser'); return; }
+    const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
+    const fresh = asstFreshness(data);
+
+    const userPayload = {
+        date_analyse: new Date().toISOString().slice(0, 10),
+        anciennete_donnees_jours: fresh ? fresh.ageDays : null,
+        reglages_pompe_actuels: {
+            plages: asstBuildSlots(data.pumpSettings).map(s => ({
+                debut: s.debut, fin: s.fin,
+                ratio_g_par_u: s.ratio, sensibilite_mgdl_par_u: s.isf, basal_u_par_h: s.basal
+            })),
+            cible_mgdl: (() => {
+                const sched = data.pumpSettings && data.pumpSettings.activeSchedule;
+                const t = data.pumpSettings && data.pumpSettings.targets && data.pumpSettings.targets[sched];
+                return t && t.length ? t[0].target : null;
+            })(),
+        },
+        statistiques: agg,
+        realisation_bolus_repas_followdia: compliance,
+    };
+    const userText = 'Voici les données d\'analyse. Propose les ajustements selon les règles.\n\n' + JSON.stringify(userPayload);
+
+    const estimate = asstEstimateCostEur(cfg, ASST_SYSTEM_PROMPT.length + userText.length);
+    const balanceTxt = cfg.balanceEur != null ? cfg.balanceEur.toFixed(2) + ' €' : 'non renseigné';
+    const ok = confirm(
+        'Analyse IA — service payant\n\n'
+        + 'Modèle : ' + ASST_MODEL + '\n'
+        + 'Coût estimé de cette analyse : ~' + estimate.toFixed(2) + ' €\n'
+        + 'Solde estimé restant du compte API : ' + balanceTxt + '\n\n'
+        + 'Lancer l\'analyse ?'
+    );
+    if (!ok) return;
+
+    const btn = $('#btn-asst-analyze');
+    btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Analyse en cours (peut prendre 1 à 3 minutes)...';
+
+    try {
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'x-api-key': cfg.apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify({
+                model: ASST_MODEL,
+                max_tokens: 8000,
+                system: [{ type: 'text', text: ASST_SYSTEM_PROMPT }],
+                messages: [{ role: 'user', content: userText }],
+                output_config: { format: { type: 'json_schema', schema: ASST_REPORT_SCHEMA } }
+            })
+        });
+
+        if (!resp.ok) {
+            const errBody = await resp.json().catch(() => null);
+            const msg = errBody && errBody.error && errBody.error.message ? errBody.error.message : ('HTTP ' + resp.status);
+            throw new Error(resp.status === 401 ? 'Clé API invalide' : msg);
+        }
+
+        const result = await resp.json();
+
+        // Coût réel à partir des tokens consommés
+        const usage = result.usage || {};
+        const costUsd = (usage.input_tokens || 0) * ASST_PRICE_USD_PER_MTOK.input / 1e6
+            + (usage.output_tokens || 0) * ASST_PRICE_USD_PER_MTOK.output / 1e6;
+        const costEur = costUsd * (cfg.usdToEur || 0.92);
+        cfg.spentEur = (cfg.spentEur || 0) + costEur;
+        if (cfg.balanceEur != null) cfg.balanceEur = Math.max(0, cfg.balanceEur - costEur);
+        asstSaveCfg(cfg);
+
+        if (result.stop_reason === 'refusal') {
+            throw new Error('La requête a été refusée par les filtres de sécurité du modèle. Réessayez plus tard.');
+        }
+        if (result.stop_reason === 'max_tokens') {
+            throw new Error('Réponse tronquée (limite de tokens atteinte). Réessayez.');
+        }
+
+        const textBlock = (result.content || []).find(b => b.type === 'text');
+        if (!textBlock) throw new Error('Réponse vide du modèle');
+        const report = JSON.parse(textBlock.text);
+
+        const reports = asstGetReports();
+        reports.unshift({ ts: Date.now(), model: ASST_MODEL, costEur: Math.round(costEur * 100) / 100, report });
+        localStorage.setItem(ASST_REPORTS_KEY, JSON.stringify(reports.slice(0, 5)));
+
+        if (statusEl) statusEl.textContent = '';
+        toast('Analyse terminée (' + costEur.toFixed(2) + ' €)');
+        renderAssistant();
+    } catch (e) {
+        console.error('Assistant analysis error:', e);
+        if (statusEl) statusEl.textContent = 'Erreur : ' + (e.message || e);
+        renderAsstBalance();
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ------------------------------------------------------------
+// Rendu de l'onglet Assistant
+// ------------------------------------------------------------
+function renderAsstBalance() {
+    const el = $('#asst-balance-display');
+    if (!el) return;
+    const cfg = asstGetCfg();
+    if (cfg.balanceEur != null) {
+        el.innerHTML = 'Solde estimé restant : <b>' + cfg.balanceEur.toFixed(2) + ' €</b>'
+            + (cfg.spentEur ? ' — dépensé via l\'app : ' + cfg.spentEur.toFixed(2) + ' €' : '')
+            + '<br><span class="asst-dim">Estimation locale — solde exact sur console.anthropic.com</span>';
+    } else {
+        el.innerHTML = '<span class="asst-dim">Renseignez le solde de votre compte API pour suivre le crédit restant.</span>';
+    }
+}
+
+function renderAsstDataStatus() {
+    const el = $('#asst-data-status');
+    const clearBtn = $('#btn-asst-clear');
+    if (!el) return;
+    const data = asstGetData();
+    if (!data) {
+        el.innerHTML = 'Aucune donnée importée. Utilisez l\'extracteur sur myDiabby (ordinateur), puis importez le fichier <b>followdia_mydiabby.json</b>.';
+        if (clearBtn) clearBtn.classList.add('hidden');
+        return;
+    }
+    const fresh = asstFreshness(data);
+    const nDays = data.days.length;
+    let html = 'Données importées : <b>' + nDays + ' jours</b> (' + asstEsc(data.days[0].date) + ' → ' + asstEsc(fresh.lastDate) + ')';
+    if (fresh.ageDays > ASST_STALE_DAYS) {
+        html += '<div class="asst-warn">⚠ Dernières données il y a ' + fresh.ageDays + ' jours. Faites un upload de la pompe sur myDiabby, puis réexportez pour une analyse à jour.</div>';
+    } else {
+        html += '<div class="asst-ok">✓ Données récentes (il y a ' + fresh.ageDays + ' jour' + (fresh.ageDays > 1 ? 's' : '') + ')</div>';
+    }
+    el.innerHTML = html;
+    if (clearBtn) clearBtn.classList.remove('hidden');
+}
+
+function renderAsstLocalSummary() {
+    const el = $('#asst-local-summary');
+    if (!el) return;
+    const data = asstGetData();
+    if (!data) { el.innerHTML = ''; return; }
+    const agg = asstAggregate(data);
+    if (!agg) { el.innerHTML = ''; return; }
+    const compliance = asstMealCompliance(agg.periode.debut, agg.periode.fin);
+
+    let html = '<div class="card"><h3>Synthèse locale (' + agg.periode.nb_jours + ' j : '
+        + asstEsc(agg.periode.debut) + ' → ' + asstEsc(agg.periode.fin) + ')</h3>';
+    html += '<div class="asst-kpis">'
+        + '<div class="asst-kpi"><span>TIR 70-180</span><b>' + agg.global.tir_70_180_pct + '%</b></div>'
+        + '<div class="asst-kpi"><span>Moyenne</span><b>' + agg.global.glycemie_moyenne + '</b></div>'
+        + '<div class="asst-kpi"><span>GMI</span><b>' + agg.global.gmi_pct + '%</b></div>'
+        + '<div class="asst-kpi"><span>&lt; 70</span><b>' + agg.global.temps_sous_70_pct + '%</b></div>'
+        + '</div>';
+    if (agg.controliq_actif_pct != null) {
+        html += '<p class="asst-dim">Control-IQ actif ' + agg.controliq_actif_pct + '% du temps</p>';
+    }
+    html += '<h4 class="asst-sub">Bolus repas réellement faits (FollowDIA)</h4><div class="asst-compliance">';
+    compliance.forEach(c => {
+        const pct = c.pct_bolus_fait_moyen;
+        const color = pct == null ? 'var(--text-dim)' : pct >= 90 ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)';
+        html += '<div class="asst-comp-row"><span>' + asstEsc(c.repas) + '</span><b style="color:' + color + '">'
+            + (pct != null ? pct + '%' : '—') + '</b><span class="asst-dim">' + c.nb_repas_saisis + ' repas</span></div>';
+    });
+    html += '</div>';
+    html += '<h4 class="asst-sub">Par plage horaire de la pompe</h4>';
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr><th>Plage</th><th>Ratio</th><th>TIR</th><th>&lt;70</th><th>Moy.</th><th>Ratio obs.</th></tr></thead><tbody>';
+    agg.plages.forEach(p => {
+        html += '<tr><td>' + asstEsc(p.debut) + '-' + asstEsc(p.fin) + '</td>'
+            + '<td>' + (p.ratio_actuel != null ? p.ratio_actuel : '—') + '</td>'
+            + '<td>' + (p.tir_pct != null ? p.tir_pct + '%' : '—') + '</td>'
+            + '<td>' + (p.hypo_pct != null ? p.hypo_pct + '%' : '—') + '</td>'
+            + '<td>' + (p.glycemie_moyenne != null ? p.glycemie_moyenne : '—') + '</td>'
+            + '<td>' + (p.ratio_effectif_observe != null ? p.ratio_effectif_observe : '—') + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+    el.innerHTML = html;
+}
+
+function renderAsstReport() {
+    const el = $('#asst-report');
+    if (!el) return;
+    const reports = asstGetReports();
+    if (!reports.length) { el.innerHTML = ''; return; }
+    const r = reports[0];
+    const rep = r.report;
+    const dateStr = new Date(r.ts).toLocaleDateString('fr-FR') + ' ' + new Date(r.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    let html = '<div class="card asst-report-card"><h3>Rapport IA du ' + asstEsc(dateStr) + '</h3>';
+    html += '<p class="asst-dim">' + asstEsc(r.model) + ' — coût ' + r.costEur.toFixed(2) + ' €</p>';
+    html += '<p class="asst-resume">' + asstEsc(rep.resume) + '</p>';
+    html += '<h4 class="asst-sub">Qualité des données</h4><p>' + asstEsc(rep.qualite_donnees) + '</p>';
+    html += '<h4 class="asst-sub">Plages proposées</h4>';
+    html += '<div class="asst-table-wrap"><table class="asst-table"><thead><tr><th>Plage</th><th>Ratio</th><th>Sensib.</th><th>Basal</th></tr></thead><tbody>';
+    (rep.plages_proposees || []).forEach(p => {
+        const cell = (a, b) => {
+            const fa = a != null ? a : '—', fb = b != null ? b : '—';
+            return a === b ? String(fa) : asstEsc(fa) + ' → <b class="asst-change">' + asstEsc(fb) + '</b>';
+        };
+        html += '<tr><td>' + asstEsc(p.debut) + '-' + asstEsc(p.fin) + '</td>'
+            + '<td>' + cell(p.ratio_actuel, p.ratio_propose) + '</td>'
+            + '<td>' + cell(p.isf_actuel, p.isf_propose) + '</td>'
+            + '<td>' + cell(p.basal_actuel, p.basal_propose) + '</td></tr>';
+        if (p.justification) {
+            html += '<tr class="asst-justif-row"><td colspan="4">' + asstEsc(p.justification) + '</td></tr>';
+        }
+    });
+    html += '</tbody></table></div>';
+    if (rep.priorites && rep.priorites.length) {
+        html += '<h4 class="asst-sub">Priorités</h4><ol class="asst-list">';
+        rep.priorites.forEach(p => { html += '<li>' + asstEsc(p) + '</li>'; });
+        html += '</ol>';
+    }
+    if (rep.avertissements && rep.avertissements.length) {
+        html += '<h4 class="asst-sub">Avertissements</h4><ul class="asst-list asst-warn-list">';
+        rep.avertissements.forEach(a => { html += '<li>' + asstEsc(a) + '</li>'; });
+        html += '</ul>';
+    }
+    html += '<p class="asst-disclaimer">⚕ Aide à la décision uniquement — toute modification des paramètres de la pompe doit être validée avec votre équipe de diabétologie.</p>';
+    if (reports.length > 1) {
+        html += '<p class="asst-dim">' + (reports.length - 1) + ' analyse(s) précédente(s) conservée(s)</p>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+}
+
+function renderAssistant() {
+    renderAsstDataStatus();
+    renderAsstLocalSummary();
+    renderAsstBalance();
+    renderAsstReport();
+    const cfg = asstGetCfg();
+    const keyEl = $('#asst-api-key');
+    const balEl = $('#asst-balance');
+    const rateEl = $('#asst-usd-eur');
+    if (keyEl && document.activeElement !== keyEl) keyEl.value = cfg.apiKey || '';
+    if (balEl && document.activeElement !== balEl) balEl.value = cfg.balanceEur != null ? cfg.balanceEur : '';
+    if (rateEl && document.activeElement !== rateEl) rateEl.value = cfg.usdToEur || 0.92;
+}
+
+function asstImportFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const parsed = JSON.parse(reader.result);
+            if (parsed.format !== 'followdia-mydiabby-v1' || !Array.isArray(parsed.days) || !parsed.days.length) {
+                toast('Fichier invalide : utilisez l\'extracteur myDiabby');
+                return;
+            }
+            localStorage.setItem(ASST_DATA_KEY, JSON.stringify(parsed));
+            toast(parsed.days.length + ' jours importés');
+            renderAssistant();
+        } catch (e) {
+            console.error('Assistant import error:', e);
+            toast(e.name === 'QuotaExceededError' ? 'Stockage local plein' : 'Fichier illisible');
+        }
+    };
+    reader.readAsText(file);
+}
+
+function initAssistant() {
+    const tabBtn = document.querySelector('.nav-tab[data-tab="assistant"]');
+    if (tabBtn) tabBtn.addEventListener('click', renderAssistant);
+
+    const importBtn = $('#btn-asst-import');
+    const fileInput = $('#asst-file-input');
+    if (importBtn && fileInput) {
+        importBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files && fileInput.files[0]) asstImportFile(fileInput.files[0]);
+            fileInput.value = '';
+        });
+    }
+
+    const clearBtn = $('#btn-asst-clear');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+        if (confirm('Supprimer les données myDiabby importées ?')) {
+            localStorage.removeItem(ASST_DATA_KEY);
+            renderAssistant();
+        }
+    });
+
+    const bmBtn = $('#btn-asst-bookmarklet');
+    const bmHelp = $('#asst-bookmarklet-help');
+    if (bmBtn && bmHelp) bmBtn.addEventListener('click', () => {
+        if (!bmHelp.classList.contains('hidden')) { bmHelp.classList.add('hidden'); return; }
+        bmHelp.innerHTML =
+            '<p><b>Sur ordinateur :</b></p>'
+            + '<ol class="asst-list">'
+            + '<li>Faites glisser ce lien dans la barre de favoris : <a class="asst-bm-link" href="' + asstBookmarkletUrl() + '">📥 Export FollowDIA</a></li>'
+            + '<li>Ouvrez <b>app.mydiabby.com</b> et connectez-vous</li>'
+            + '<li>Cliquez sur le favori « Export FollowDIA » : le fichier <b>followdia_mydiabby.json</b> se télécharge</li>'
+            + '<li>Revenez ici et importez ce fichier</li>'
+            + '</ol>'
+            + '<button id="btn-asst-copy-bm" class="btn btn-secondary">Copier le code du favori</button>'
+            + '<p class="asst-dim">Si le glisser-déposer ne marche pas : créez un favori manuellement et collez le code copié comme adresse.</p>';
+        bmHelp.classList.remove('hidden');
+        const copyBtn = $('#btn-asst-copy-bm');
+        if (copyBtn) copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(asstBookmarkletUrl()).then(() => toast('Code copié'));
+        });
+    });
+
+    const keyEl = $('#asst-api-key');
+    const balEl = $('#asst-balance');
+    const rateEl = $('#asst-usd-eur');
+    const saveCfgFromInputs = () => {
+        const cfg = asstGetCfg();
+        if (keyEl) cfg.apiKey = keyEl.value.trim();
+        if (balEl) cfg.balanceEur = balEl.value === '' ? null : parseFloat(balEl.value);
+        if (rateEl) cfg.usdToEur = parseFloat(rateEl.value) || 0.92;
+        asstSaveCfg(cfg);
+        renderAsstBalance();
+    };
+    [keyEl, balEl, rateEl].forEach(el => { if (el) el.addEventListener('change', saveCfgFromInputs); });
+
+    const analyzeBtn = $('#btn-asst-analyze');
+    if (analyzeBtn) analyzeBtn.addEventListener('click', asstRunAnalysis);
+
+    renderAssistant();
+}
+
+document.addEventListener('DOMContentLoaded', initAssistant);
+

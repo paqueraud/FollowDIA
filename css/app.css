@@ -1376,6 +1376,183 @@ canvas {
     line-height: 1.4;
 }
 
+/* Assistant IA */
+.asst-status {
+    font-size: calc(13px * var(--fs, 1));
+    color: var(--text);
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.asst-warn {
+    color: var(--warning);
+    font-weight: 600;
+    margin-top: 6px;
+}
+
+.asst-ok {
+    color: var(--success);
+    margin-top: 6px;
+}
+
+.asst-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.asst-help {
+    margin-top: 12px;
+    font-size: calc(13px * var(--fs, 1));
+    line-height: 1.5;
+}
+
+.asst-bm-link {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.asst-paid-note {
+    font-size: calc(13px * var(--fs, 1));
+    color: var(--warning);
+    font-weight: 600;
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+
+.asst-cfg-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.asst-balance {
+    font-size: calc(13px * var(--fs, 1));
+    margin: 8px 0 12px;
+    line-height: 1.5;
+}
+
+.asst-dim {
+    color: var(--text-dim);
+    opacity: 0.75;
+    font-size: calc(12px * var(--fs, 1));
+}
+
+.asst-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.asst-kpi {
+    background: var(--bg-card-alt);
+    border-radius: var(--radius-sm);
+    padding: 8px 4px;
+    text-align: center;
+}
+
+.asst-kpi span {
+    display: block;
+    font-size: calc(10px * var(--fs, 1));
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.asst-kpi b {
+    font-size: calc(16px * var(--fs, 1));
+}
+
+.asst-sub {
+    margin: 14px 0 6px;
+    font-size: calc(12px * var(--fs, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+}
+
+.asst-compliance {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.asst-comp-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    font-size: calc(13px * var(--fs, 1));
+    align-items: baseline;
+}
+
+.asst-table-wrap {
+    overflow-x: auto;
+}
+
+.asst-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: calc(12px * var(--fs, 1));
+}
+
+.asst-table th, .asst-table td {
+    padding: 5px 6px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.asst-table th {
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.asst-justif-row td {
+    white-space: normal;
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text-dim);
+    padding-bottom: 8px;
+}
+
+.asst-change {
+    color: var(--accent-light);
+}
+
+.asst-resume {
+    font-size: calc(14px * var(--fs, 1));
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.asst-list {
+    padding-left: 20px;
+    font-size: calc(13px * var(--fs, 1));
+    line-height: 1.5;
+}
+
+.asst-list li {
+    margin-bottom: 4px;
+}
+
+.asst-warn-list li {
+    color: var(--warning);
+}
+
+.asst-disclaimer {
+    margin-top: 14px;
+    padding: 10px;
+    background: var(--bg-card-alt);
+    border-radius: var(--radius-sm);
+    font-size: calc(12px * var(--fs, 1));
+    font-weight: 600;
+    line-height: 1.4;
+}
+
 /* Fatal error banner */
 #fatal-error-bar {
     position: fixed;
