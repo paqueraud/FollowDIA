@@ -2180,6 +2180,12 @@ function renderSettings() {
     $('#settings-ns-token').value = settings.nightscoutToken || '';
     $('#settings-gh-token').value = settings.ghToken || '';
     $('#settings-gist-id').value = settings.gistId || '';
+    // Identifiants myDiabby : stockés à part, jamais synchronisés via le Gist
+    const mdCfg = (typeof mdGetCfg === 'function') ? mdGetCfg() : { user: '', pass: '' };
+    const mdUserEl = $('#settings-md-user');
+    const mdPassEl = $('#settings-md-pass');
+    if (mdUserEl) mdUserEl.value = mdCfg.user || '';
+    if (mdPassEl) mdPassEl.value = mdCfg.pass || '';
     updateThemeButtons();
     updateFontSizeButtons();
 }
@@ -2198,6 +2204,12 @@ function saveSettingsFromUI() {
     settings.nightscoutToken = $('#settings-ns-token').value.trim();
     settings.ghToken = $('#settings-gh-token').value.trim();
     settings.gistId = $('#settings-gist-id').value.trim();
+    const mdUserEl = $('#settings-md-user');
+    const mdPassEl = $('#settings-md-pass');
+    if (mdUserEl && mdPassEl && typeof mdSaveCfg === 'function') {
+        mdSaveCfg({ user: mdUserEl.value.trim(), pass: mdPassEl.value });
+        if (typeof renderAssistant === 'function') renderAssistant();
+    }
     saveSettings();
     toast('Paramètres sauvegardés');
     renderMeal();
@@ -3001,7 +3013,228 @@ function asstGetReports() {
 }
 
 // ------------------------------------------------------------
-// Bookmarklet d'extraction (à exécuter sur app.mydiabby.com)
+// Connexion directe à myDiabby (identifiants dans les Paramètres)
+// L'API myDiabby autorise les requêtes cross-origin : FollowDIA
+// se connecte, récupère les données et les normalise lui-même.
+// ------------------------------------------------------------
+const MD_CFG_KEY = 'followdia_mydiabby_cfg';
+const MD_BASE = 'https://app.mydiabby.com';
+
+function mdGetCfg() {
+    try {
+        const c = JSON.parse(localStorage.getItem(MD_CFG_KEY));
+        if (c && typeof c === 'object') return c;
+    } catch (e) {}
+    return { user: '', pass: '' };
+}
+
+function mdSaveCfg(cfg) {
+    localStorage.setItem(MD_CFG_KEY, JSON.stringify(cfg));
+}
+
+async function mdLogin(user, pass) {
+    const resp = await fetch(MD_BASE + '/api/getToken', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+    });
+    const body = await resp.json().catch(() => null);
+    if (!resp.ok) {
+        let msg = (body && body.message) ? String(body.message).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : ('HTTP ' + resp.status);
+        throw new Error(msg);
+    }
+    const token = body && (body.token || body.jwt || body.access_token);
+    if (!token) throw new Error('Connexion réussie mais aucun jeton reçu');
+    return token;
+}
+
+async function mdApiGet(token, path) {
+    const resp = await fetch(MD_BASE + path, {
+        headers: { 'Authorization': 'Bearer ' + token, 'accept': 'application/json' }
+    });
+    if (!resp.ok) {
+        const b = await resp.json().catch(() => null);
+        const msg = (b && b.message) ? String(b.message).replace(/<[^>]*>/g, ' ').trim() : ('HTTP ' + resp.status);
+        throw new Error(msg);
+    }
+    return resp.json();
+}
+
+// Trouve le tableau de journées quel que soit l'emplacement dans la réponse
+function mdFindDays(payload) {
+    const looksLikeDay = o => o && typeof o === 'object'
+        && (o.date != null || o.day != null)
+        && (Array.isArray(o.cgm) || Array.isArray(o.data));
+    const candidates = [];
+    if (Array.isArray(payload)) candidates.push(payload);
+    if (payload && typeof payload === 'object') {
+        ['days', 'data', 'result', 'items', 'list'].forEach(k => {
+            if (Array.isArray(payload[k])) candidates.push(payload[k]);
+        });
+        Object.values(payload).forEach(v => { if (Array.isArray(v)) candidates.push(v); });
+    }
+    for (const arr of candidates) {
+        if (arr.length && arr.some(looksLikeDay)) return arr.filter(looksLikeDay);
+    }
+    return null;
+}
+
+function mdNormalizeTime(t) {
+    if (t == null) return '';
+    if (typeof t === 'object' && typeof t.format === 'function') return t.format('HH:mm');
+    const s = String(t);
+    const hm = s.match(/(\d{1,2}):(\d{2})/);
+    if (hm && s.indexOf('T') < 0 && !/\d{4}-\d{2}-\d{2}/.test(s)) {
+        return ('0' + hm[1]).slice(-2) + ':' + hm[2];
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    return hm ? ('0' + hm[1]).slice(-2) + ':' + hm[2] : '';
+}
+
+function mdNormalizeDate(d) {
+    if (d == null) return null;
+    if (typeof d === 'object' && typeof d.format === 'function') return d.format('YYYY-MM-DD');
+    const s = String(d);
+    const m = s.match(/(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+        return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2);
+    }
+    return null;
+}
+
+// Transforme la réponse brute de l'API en payload followdia-mydiabby-v1
+function mdBuildPayload(rawData, pumpRaw) {
+    const rawDays = mdFindDays(rawData);
+    if (!rawDays) {
+        const keys = rawData && typeof rawData === 'object' ? Object.keys(rawData).slice(0, 8).join(', ') : typeof rawData;
+        throw new Error('Format de données myDiabby inattendu (champs reçus : ' + keys + ')');
+    }
+
+    const cutoff = Date.now() - 90 * 86400000;
+    const out = [];
+    rawDays.forEach(d => {
+        const ds = mdNormalizeDate(d.date || d.day);
+        if (!ds) return;
+        const dayTs = new Date(ds + 'T12:00:00').getTime();
+        if (isNaN(dayTs) || dayTs < cutoff) return;
+
+        const cgm = (d.cgm || []).map(p => {
+            const ts = Date.parse(p.date || p.time || p.datetime);
+            const raw = parseFloat(p.value != null ? p.value : p.sgv);
+            // myDiabby renvoie des g/L (ex 1.85) ; on convertit en mg/dl
+            const v = raw > 0 && raw < 30 ? Math.round(raw * 100) : Math.round(raw);
+            return [ts, v];
+        }).filter(p => !isNaN(p[0]) && p[1] > 20 && p[1] < 600);
+
+        const entries = (d.data || []).map(e => {
+            const o = { t: mdNormalizeTime(e.time || e.date) };
+            if (e.insulin) {
+                o.ins = {
+                    b: parseFloat(e.insulin.bolus) || 0,
+                    c: parseFloat(e.insulin.bolus_corr) || 0
+                };
+            }
+            if (e.meal && e.meal.carb != null) o.carb = parseFloat(e.meal.carb) || 0;
+            if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
+            return o;
+        }).filter(o => o.t && (o.ins || o.carb != null || o.gly != null));
+
+        const cl = (d.closed_loop || []).map(p => ({ s: p.start, e: p.end, m: p.mode }))
+            .filter(p => p.s && p.e);
+
+        if (cgm.length || entries.length) out.push({ date: ds, cgm, entries, cl });
+    });
+
+    if (!out.length) throw new Error('Aucune donnée exploitable sur les 90 derniers jours');
+    out.sort((a, b) => a.date < b.date ? -1 : 1);
+
+    // Réglages de pompe : plusieurs emplacements possibles selon l'endpoint
+    const psSrc = (pumpRaw && (pumpRaw.current || pumpRaw))
+        || (rawData && rawData.patient && rawData.patient.pumpsettings && rawData.patient.pumpsettings.current)
+        || (rawData && rawData.pumpsettings && rawData.pumpsettings.current)
+        || null;
+    const psData = psSrc && psSrc.data ? psSrc.data : psSrc;
+    const pumpSettings = psData && psData.carbRatios ? {
+        date: psSrc.date || psData.time || null,
+        activeSchedule: psData.activeSchedule,
+        basal: psData.basalSchedules,
+        carbRatios: psData.carbRatios,
+        isf: psData.insulinSensitivities,
+        targets: psData.bgTargets,
+        model: psData.model || null
+    } : null;
+
+    return {
+        format: 'followdia-mydiabby-v1',
+        exportedAt: new Date().toISOString(),
+        source: 'api',
+        pumpSettings,
+        days: out
+    };
+}
+
+async function asstSyncMyDiabby() {
+    const statusEl = $('#asst-sync-status');
+    const btn = $('#btn-asst-sync');
+    const cfg = mdGetCfg();
+
+    if (!cfg.user || !cfg.pass) {
+        toast('Renseignez vos identifiants myDiabby dans les Paramètres');
+        if (statusEl) statusEl.innerHTML = '<span class="asst-warn">Identifiants myDiabby manquants — menu ⚙ Paramètres → myDiabby.</span>';
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Connexion à myDiabby...';
+
+    try {
+        const token = await mdLogin(cfg.user, cfg.pass);
+        if (statusEl) statusEl.textContent = 'Récupération des données (90 jours)...';
+        const rawData = await mdApiGet(token, '/api/data');
+
+        let pumpRaw = null;
+        try {
+            pumpRaw = await mdApiGet(token, '/api/pumpsettings/');
+        } catch (e) {
+            console.warn('pumpsettings endpoint indisponible, repli sur /api/data', e.message);
+        }
+
+        const payload = mdBuildPayload(rawData, pumpRaw);
+        if (!payload.pumpSettings) {
+            console.warn('Réglages de pompe introuvables dans la réponse myDiabby');
+        }
+        localStorage.setItem(ASST_DATA_KEY, JSON.stringify(payload));
+
+        if (statusEl) {
+            statusEl.innerHTML = '<span class="asst-ok">✓ ' + payload.days.length + ' jours récupérés'
+                + (payload.pumpSettings ? ' (réglages pompe inclus)' : ' — réglages de pompe non trouvés')
+                + '</span>';
+        }
+        toast(payload.days.length + ' jours récupérés depuis myDiabby');
+        renderAssistant();
+    } catch (e) {
+        console.error('myDiabby sync error:', e);
+        const msg = String(e.message || e);
+        let hint = msg;
+        if (/Failed to fetch|NetworkError/i.test(msg)) {
+            hint = 'Connexion à myDiabby impossible (réseau ou blocage du navigateur).';
+        } else if (/tentatives/i.test(msg)) {
+            hint = msg + ' Attendez avant de réessayer.';
+        } else if (/identifiant|mot de passe/i.test(msg)) {
+            hint = 'Identifiant ou mot de passe myDiabby incorrect (Paramètres → myDiabby).';
+        }
+        if (statusEl) statusEl.innerHTML = '<span class="asst-warn">✗ ' + asstEsc(hint) + '</span>';
+        toast('Échec de la récupération myDiabby');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ------------------------------------------------------------
+// Bookmarklet d'extraction (repli si l'API est inaccessible)
 // ------------------------------------------------------------
 function asstExtractorSource() {
     return function () {
@@ -3446,7 +3679,10 @@ function renderAsstDataStatus() {
     if (!el) return;
     const data = asstGetData();
     if (!data) {
-        el.innerHTML = 'Aucune donnée importée. Utilisez l\'extracteur sur myDiabby (ordinateur), puis importez le fichier <b>followdia_mydiabby.json</b>.';
+        const cfg = mdGetCfg();
+        el.innerHTML = (cfg.user && cfg.pass)
+            ? 'Aucune donnée. Cliquez sur <b>Récupérer depuis myDiabby</b> pour importer automatiquement les 90 derniers jours.'
+            : 'Aucune donnée. Renseignez vos identifiants myDiabby dans <b>⚙ Paramètres → myDiabby</b>, puis cliquez sur <b>Récupérer depuis myDiabby</b>.';
         if (clearBtn) clearBtn.classList.add('hidden');
         return;
     }
@@ -3607,26 +3843,8 @@ function initAssistant() {
         }
     });
 
-    const bmBtn = $('#btn-asst-bookmarklet');
-    const bmHelp = $('#asst-bookmarklet-help');
-    if (bmBtn && bmHelp) bmBtn.addEventListener('click', () => {
-        if (!bmHelp.classList.contains('hidden')) { bmHelp.classList.add('hidden'); return; }
-        bmHelp.innerHTML =
-            '<p><b>Sur ordinateur :</b></p>'
-            + '<ol class="asst-list">'
-            + '<li>Faites glisser ce lien dans la barre de favoris : <a class="asst-bm-link" href="' + asstBookmarkletUrl() + '">📥 Export FollowDIA</a></li>'
-            + '<li>Ouvrez <b>app.mydiabby.com</b> et connectez-vous</li>'
-            + '<li>Cliquez sur le favori « Export FollowDIA » : le fichier <b>followdia_mydiabby.json</b> se télécharge</li>'
-            + '<li>Revenez ici et importez ce fichier</li>'
-            + '</ol>'
-            + '<button id="btn-asst-copy-bm" class="btn btn-secondary">Copier le code du favori</button>'
-            + '<p class="asst-dim">Si le glisser-déposer ne marche pas : créez un favori manuellement et collez le code copié comme adresse.</p>';
-        bmHelp.classList.remove('hidden');
-        const copyBtn = $('#btn-asst-copy-bm');
-        if (copyBtn) copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(asstBookmarkletUrl()).then(() => toast('Code copié'));
-        });
-    });
+    const syncBtn = $('#btn-asst-sync');
+    if (syncBtn) syncBtn.addEventListener('click', asstSyncMyDiabby);
 
     const keyEl = $('#asst-api-key');
     const balEl = $('#asst-balance');

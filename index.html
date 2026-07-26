@@ -140,12 +140,12 @@
                     <h3>Données myDiabby</h3>
                     <div id="asst-data-status" class="asst-status"></div>
                     <div class="asst-actions">
+                        <button id="btn-asst-sync" class="btn btn-primary">Récupérer depuis myDiabby</button>
                         <button id="btn-asst-import" class="btn btn-secondary">Importer un fichier</button>
                         <input type="file" id="asst-file-input" accept="application/json,.json" style="display:none">
-                        <button id="btn-asst-bookmarklet" class="btn btn-secondary">Installer l'extracteur</button>
                         <button id="btn-asst-clear" class="btn btn-secondary hidden">Supprimer les données</button>
                     </div>
-                    <div id="asst-bookmarklet-help" class="asst-help hidden"></div>
+                    <div id="asst-sync-status" class="asst-status"></div>
                 </div>
                 <div id="asst-local-summary"></div>
                 <div class="card">
@@ -205,6 +205,17 @@
                         <label>Token API</label>
                         <input type="text" id="settings-ns-token" placeholder="Token" autocomplete="off">
                     </div>
+                    <h4>myDiabby (données pompe)</h4>
+                    <div class="input-group">
+                        <label>Email myDiabby</label>
+                        <input type="email" id="settings-md-user" placeholder="email@exemple.com" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="input-group">
+                        <label>Mot de passe myDiabby</label>
+                        <input type="password" id="settings-md-pass" placeholder="Mot de passe" autocomplete="new-password" spellcheck="false">
+                    </div>
+                    <p class="settings-hint">Stockés uniquement sur cet appareil, jamais envoyés au Gist. Utilisés pour récupérer automatiquement les données de la pompe dans l'onglet Assistant.</p>
+
                     <h4>GitHub Sync</h4>
                     <div class="input-group">
                         <label>Token GitHub (Personal Access Token)</label>

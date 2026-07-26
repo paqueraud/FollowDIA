@@ -1376,6 +1376,14 @@ canvas {
     line-height: 1.4;
 }
 
+.settings-hint {
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text-dim);
+    opacity: 0.8;
+    line-height: 1.4;
+    margin: -4px 0 8px;
+}
+
 /* Assistant IA */
 .asst-status {
     font-size: calc(13px * var(--fs, 1));
