@@ -4295,107 +4295,464 @@ function renderAsstRecommended() {
     html += '<p class="asst-dim">' + rows.length + ' plages — ' + nChanged + ' paramètre'
         + (nChanged > 1 ? 's modifiés' : ' modifié')
         + ' — basal quotidien proposé : ' + Math.round(totalBasal * 100) / 100 + ' U/24 h</p>';
-    html += '<button id="btn-asst-pdf" class="btn btn-secondary">Rapport PDF à partager</button>';
+    html += '<button id="btn-asst-pdf" class="btn btn-secondary">📄 Rapport PDF</button>';
     html += '</div>';
     el.innerHTML = html;
 
     const pdfBtn = $('#btn-asst-pdf');
-    if (pdfBtn) pdfBtn.addEventListener('click', asstOpenPdfReport);
+    if (pdfBtn) pdfBtn.addEventListener('click', asstExportPdf);
 }
 
-// Rapport imprimable (aucun appel à l'API) : le navigateur permet ensuite
-// « Enregistrer au format PDF » depuis la boîte d'impression.
-function asstBuildReportHtml() {
+// ------------------------------------------------------------
+// Génération PDF autonome (aucune bibliothèque, aucun réseau)
+// Polices standard PDF (Helvetica) : pas d'embarquement nécessaire.
+// ------------------------------------------------------------
+const PDF_WIDTH_REGULAR = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
+const PDF_WIDTH_BOLD = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+    975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+    333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+    611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584];
+
+// Caractères sans équivalent dans l'encodage PDF standard
+const PDF_REPLACEMENTS = [
+    [/[≥]/g, '>='], [/[≤]/g, '<='], [/[→➔]/g, '->'],
+    [/[✓✔]/g, '*'], [/[⚠⛕⚕⚙]/g, '!'],
+    [/[•]/g, '-'], [/[   ]/g, ' '], [/[−]/g, '-'],
+    [/[^\x00-\xFFĀ-ſ–—‘’“”…€]/g, '']
+];
+// Unicode -> code WinAnsi pour les caractères hors Latin-1
+const PDF_WINANSI = {
+    0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85,
+    0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A,
+    0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92,
+    0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
+    0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C,
+    0x017E: 0x9E, 0x0178: 0x9F
+};
+// Pour la mesure de largeur, un caractère accentué vaut sa lettre de base
+const PDF_BASE_CHAR = {
+    0xE0: 'a', 0xE2: 'a', 0xE4: 'a', 0xE1: 'a', 0xE3: 'a', 0xE5: 'a',
+    0xE7: 'c', 0xE8: 'e', 0xE9: 'e', 0xEA: 'e', 0xEB: 'e',
+    0xEC: 'i', 0xED: 'i', 0xEE: 'i', 0xEF: 'i', 0xF1: 'n',
+    0xF2: 'o', 0xF3: 'o', 0xF4: 'o', 0xF6: 'o', 0xF5: 'o',
+    0xF9: 'u', 0xFA: 'u', 0xFB: 'u', 0xFC: 'u', 0xFD: 'y', 0xFF: 'y',
+    0xC0: 'A', 0xC1: 'A', 0xC2: 'A', 0xC4: 'A', 0xC7: 'C',
+    0xC8: 'E', 0xC9: 'E', 0xCA: 'E', 0xCB: 'E', 0xCE: 'I', 0xCF: 'I',
+    0xD4: 'O', 0xD6: 'O', 0xD9: 'U', 0xDB: 'U', 0xDC: 'U',
+    0x92: "'", 0x91: "'", 0x93: '"', 0x94: '"', 0x96: '-', 0x97: '-', 0x85: '.', 0x80: 'E'
+};
+
+// Convertit une chaîne en codes WinAnsi imprimables
+function pdfEncode(str) {
+    let s = String(str == null ? '' : str);
+    PDF_REPLACEMENTS.forEach(r => { s = s.replace(r[0], r[1]); });
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+        const cp = s.charCodeAt(i);
+        if (cp < 256) out.push(cp);
+        else if (PDF_WINANSI[cp] != null) out.push(PDF_WINANSI[cp]);
+        else out.push(63); // '?'
+    }
+    return out;
+}
+
+function pdfLiteral(str) {
+    const codes = pdfEncode(str);
+    let out = '';
+    codes.forEach(c => {
+        if (c === 0x28 || c === 0x29 || c === 0x5C) out += '\\' + String.fromCharCode(c);
+        else if (c < 32 || c > 126) out += '\\' + ('00' + c.toString(8)).slice(-3);
+        else out += String.fromCharCode(c);
+    });
+    return '(' + out + ')';
+}
+
+function pdfTextWidth(str, size, bold) {
+    const table = bold ? PDF_WIDTH_BOLD : PDF_WIDTH_REGULAR;
+    let w = 0;
+    pdfEncode(str).forEach(c => {
+        let code = c;
+        if (code > 126 || code < 32) {
+            const base = PDF_BASE_CHAR[code];
+            code = base ? base.charCodeAt(0) : 'n'.charCodeAt(0);
+        }
+        w += table[code - 32] || 500;
+    });
+    return w * size / 1000;
+}
+
+function pdfWrap(str, maxWidth, size, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    words.forEach(word => {
+        const attempt = line ? line + ' ' + word : word;
+        if (pdfTextWidth(attempt, size, bold) <= maxWidth || !line) {
+            line = attempt;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+    });
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+}
+
+// Petit moteur de mise en page : pages A4, deux polices, filets et pavés
+function pdfCreateDoc() {
+    const PAGE_W = 595.28, PAGE_H = 841.89, MARGIN = 42;
+    const pages = [];
+    let ops = null, y = 0;
+
+    const doc = {
+        pageWidth: PAGE_W, pageHeight: PAGE_H, margin: MARGIN,
+        contentWidth: PAGE_W - 2 * MARGIN,
+        get y() { return y; },
+        set y(v) { y = v; },
+        pageCount: () => pages.length,
+    };
+
+    doc.newPage = () => {
+        ops = [];
+        pages.push(ops);
+        y = PAGE_H - MARGIN;
+        return doc;
+    };
+    doc.ensure = h => {
+        if (y - h < MARGIN + 26) doc.newPage();
+        return doc;
+    };
+    doc.color = (r, g, b) => { ops.push(r + ' ' + g + ' ' + b + ' rg'); return doc; };
+    doc.text = (str, x, yy, size, bold, rgb) => {
+        const c = rgb || [0.1, 0.1, 0.12];
+        ops.push('BT ' + c[0] + ' ' + c[1] + ' ' + c[2] + ' rg /' + (bold ? 'F2' : 'F1') + ' ' + size
+            + ' Tf 1 0 0 1 ' + x.toFixed(2) + ' ' + yy.toFixed(2) + ' Tm ' + pdfLiteral(str) + ' Tj ET');
+        return doc;
+    };
+    doc.rect = (x, yy, w, h, rgb, stroke) => {
+        const c = rgb || [1, 1, 1];
+        ops.push(c[0] + ' ' + c[1] + ' ' + c[2] + (stroke ? ' RG ' : ' rg ')
+            + x.toFixed(2) + ' ' + yy.toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re ' + (stroke ? 'S' : 'f'));
+        return doc;
+    };
+    doc.line = (x1, y1, x2, y2, rgb, width) => {
+        const c = rgb || [0.8, 0.8, 0.82];
+        ops.push(c[0] + ' ' + c[1] + ' ' + c[2] + ' RG ' + (width || 0.5) + ' w '
+            + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l S');
+        return doc;
+    };
+
+    doc.build = () => {
+        const objects = [];
+        const nPages = pages.length;
+        const kids = [];
+        for (let i = 0; i < nPages; i++) kids.push((5 + i * 2) + ' 0 R');
+
+        objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+        objects[2] = '<< /Type /Pages /Count ' + nPages + ' /Kids [' + kids.join(' ') + '] >>';
+        objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+        objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+
+        pages.forEach((pageOps, i) => {
+            const content = pageOps.join('\n');
+            objects[5 + i * 2] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '
+                + PAGE_W.toFixed(2) + ' ' + PAGE_H.toFixed(2) + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >>'
+                + ' /Contents ' + (6 + i * 2) + ' 0 R >>';
+            objects[6 + i * 2] = '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream';
+        });
+
+        let out = '%PDF-1.4\n';
+        const offsets = [];
+        for (let i = 1; i < objects.length; i++) {
+            offsets[i] = out.length;
+            out += i + ' 0 obj\n' + objects[i] + '\nendobj\n';
+        }
+        const xrefPos = out.length;
+        out += 'xref\n0 ' + objects.length + '\n0000000000 65535 f \n';
+        for (let i = 1; i < objects.length; i++) {
+            out += ('0000000000' + offsets[i]).slice(-10) + ' 00000 n \n';
+        }
+        out += 'trailer\n<< /Size ' + objects.length + ' /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF';
+
+        const bytes = new Uint8Array(out.length);
+        for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 0xFF;
+        return bytes;
+    };
+
+    return doc;
+}
+
+// ------------------------------------------------------------
+// Mise en page du rapport d'analyse
+// ------------------------------------------------------------
+function asstBuildPdfBytes() {
     const reports = asstGetReports();
     if (!reports.length) return null;
     const r = reports[0];
     const rep = r.report;
     const data = asstGetData();
     const agg = data ? asstAggregate(data, r.windowDays || asstWindowDays()) : null;
-    const dateStr = new Date(r.ts).toLocaleDateString('fr-FR') + ' à '
-        + new Date(r.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-    const cell = (v, old) => {
-        const changed = v != null && old != null && v !== old;
-        return changed
-            ? '<td class="chg"><b>' + asstEsc(v) + '</b> <span class="old">' + asstEsc(old) + '</span></td>'
-            : '<td>' + (v != null ? asstEsc(v) : '—') + '</td>';
+    const GREY = [0.42, 0.42, 0.46], DARK = [0.1, 0.1, 0.12];
+    const ACCENT = [0.16, 0.28, 0.62], CHANGE = [0.72, 0.36, 0.03];
+    const doc = pdfCreateDoc();
+    const L = doc.margin, R = doc.pageWidth - doc.margin, CW = doc.contentWidth;
+    doc.newPage();
+
+    const heading = txt => {
+        doc.ensure(34);
+        doc.y -= 14;
+        doc.text(txt.toUpperCase(), L, doc.y, 9.5, true, ACCENT);
+        doc.y -= 5;
+        doc.line(L, doc.y, R, doc.y, [0.82, 0.82, 0.85]);
+        doc.y -= 12;
+    };
+    const paragraph = (txt, size, rgb) => {
+        const s = size || 9.5;
+        pdfWrap(txt, CW, s, false).forEach(line => {
+            doc.ensure(s + 4);
+            doc.text(line, L, doc.y, s, false, rgb || DARK);
+            doc.y -= s + 3.5;
+        });
+    };
+    const bullets = (arr, rgb) => {
+        (arr || []).forEach((item, i) => {
+            const prefix = (i + 1) + '.';
+            pdfWrap(item, CW - 18, 9.5, false).forEach((line, j) => {
+                doc.ensure(14);
+                if (j === 0) doc.text(prefix, L, doc.y, 9.5, true, rgb || DARK);
+                doc.text(line, L + 18, doc.y, 9.5, false, rgb || DARK);
+                doc.y -= 13;
+            });
+        });
     };
 
-    let profileRows = '';
-    (rep.plages_proposees || []).forEach(p => {
-        profileRows += '<tr><td>' + asstEsc(p.debut) + '–' + asstEsc(p.fin) + '</td>'
-            + cell(p.basal_propose, p.basal_actuel)
-            + cell(p.ratio_propose, p.ratio_actuel)
-            + cell(p.isf_propose, p.isf_actuel)
-            + cell(p.cible_proposee, p.cible_actuelle)
-            + '<td class="just">' + asstEsc(p.justification || '') + '</td></tr>';
+    // ---- En-tête ----
+    doc.text('FollowDIA', L, doc.y, 17, true, DARK);
+    doc.y -= 17;
+    doc.text('Révision des paramètres d\'insulinothérapie', L, doc.y, 11.5, false, GREY);
+    doc.y -= 15;
+    const dateStr = new Date(r.ts).toLocaleDateString('fr-FR') + ' à '
+        + new Date(r.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    let meta = 'Analyse du ' + dateStr;
+    if (r.periode) meta += '  ·  Période étudiée : ' + r.periode.debut + ' au ' + r.periode.fin
+        + ' (' + r.periode.nb_jours + ' jours)';
+    if (data && data.pumpSettings && data.pumpSettings.activeSchedule) {
+        meta += '  ·  Profil ' + data.pumpSettings.activeSchedule;
+    }
+    pdfWrap(meta, CW, 8.5, false).forEach(line => {
+        doc.text(line, L, doc.y, 8.5, false, GREY);
+        doc.y -= 11;
     });
+    doc.y -= 4;
+    doc.line(L, doc.y, R, doc.y, [0.7, 0.7, 0.74], 1);
+    doc.y -= 6;
 
-    let statsBlock = '';
-    if (agg) {
-        statsBlock = '<h2>Situation observée</h2><table class="stats"><tr>'
-            + '<td><span>Temps dans la cible</span><b>' + agg.global.tir_70_180_pct + ' %</b></td>'
-            + '<td><span>Glycémie moyenne</span><b>' + agg.global.glycemie_moyenne + ' mg/dl</b></td>'
-            + '<td><span>HbA1c estimée (GMI)</span><b>' + agg.global.gmi_pct + ' %</b></td>'
-            + '<td><span>Variabilité (CV)</span><b>' + agg.global.cv_pct + ' %</b></td>'
-            + '<td><span>Temps sous 70</span><b>' + agg.global.temps_sous_70_pct + ' %</b></td>'
-            + '</tr></table>';
+    // ---- Résumé ----
+    if (rep.resume) {
+        heading('Synthèse');
+        paragraph(rep.resume, 10);
     }
 
-    const list = (arr, cls) => (arr && arr.length)
-        ? '<ul class="' + (cls || '') + '">' + arr.map(x => '<li>' + asstEsc(x) + '</li>').join('') + '</ul>'
-        : '';
+    // ---- Statistiques observées ----
+    if (agg) {
+        heading('Situation observée');
+        const stats = [
+            ['Temps dans la cible', agg.global.tir_70_180_pct + ' %'],
+            ['Glycémie moyenne', agg.global.glycemie_moyenne + ' mg/dl'],
+            ['HbA1c estimée', agg.global.gmi_pct + ' %'],
+            ['Variabilité (CV)', agg.global.cv_pct + ' %'],
+            ['Temps sous 70', agg.global.temps_sous_70_pct + ' %'],
+        ];
+        doc.ensure(40);
+        const colW = CW / stats.length;
+        stats.forEach((s, i) => {
+            const x = L + i * colW;
+            doc.text(s[0], x, doc.y, 7.5, false, GREY);
+            doc.text(s[1], x, doc.y - 14, 13, true, DARK);
+        });
+        doc.y -= 34;
+    }
 
-    return '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">'
-        + '<title>FollowDIA — Analyse ' + asstEsc(new Date(r.ts).toLocaleDateString('fr-FR')) + '</title><style>'
-        + '*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:24px;line-height:1.45}'
-        + 'h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#444;margin:22px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}'
-        + '.meta{color:#666;font-size:12px;margin-bottom:8px}p{font-size:13px}'
-        + 'table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px}'
-        + 'th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}'
-        + 'th{background:#f1f3f6;font-weight:600}'
-        + 'td.chg{background:#fff6e0}td.chg b{color:#a8500a}.old{color:#999;text-decoration:line-through;margin-left:4px}'
-        + 'td.just{font-size:11px;color:#444}'
-        + 'table.stats td{border:none;padding:6px 10px 6px 0}table.stats span{display:block;font-size:11px;color:#666}table.stats b{font-size:16px}'
-        + 'ul{font-size:13px;margin:4px 0 0 18px;padding:0}li{margin-bottom:3px}'
-        + '.warn li{color:#8a4b00}'
-        + '.disclaimer{margin-top:22px;padding:10px;border:1px solid #ccc;background:#f7f7f7;font-size:12px;font-weight:600}'
-        + '.foot{margin-top:14px;color:#888;font-size:11px}'
-        + '@media print{body{margin:12mm}h2{break-after:avoid}tr{break-inside:avoid}}'
-        + '</style></head><body>'
-        + '<h1>FollowDIA — Révision des paramètres d\'insulinothérapie</h1>'
-        + '<div class="meta">Analyse du ' + asstEsc(dateStr)
-        + (r.periode ? ' · période étudiée : ' + asstEsc(r.periode.debut) + ' → ' + asstEsc(r.periode.fin)
-            + ' (' + r.periode.nb_jours + ' jours)' : '')
-        + (data && data.pumpSettings && data.pumpSettings.activeSchedule
-            ? ' · profil ' + asstEsc(data.pumpSettings.activeSchedule) : '')
-        + '</div>'
-        + '<p>' + asstEsc(rep.resume || '') + '</p>'
-        + statsBlock
-        + '<h2>Profil recommandé</h2>'
-        + '<table><thead><tr><th>Plage</th><th>Basal U/h</th><th>Ratio g/U</th><th>Sensib.</th><th>Cible</th><th>Justification</th></tr></thead>'
-        + '<tbody>' + profileRows + '</tbody></table>'
-        + '<p class="foot">Les valeurs sur fond orangé sont les modifications proposées ; l\'ancienne valeur est rappelée barrée.</p>'
-        + (rep.qualite_donnees ? '<h2>Qualité des données</h2><p>' + asstEsc(rep.qualite_donnees) + '</p>' : '')
-        + (rep.priorites && rep.priorites.length ? '<h2>Priorités</h2>' + list(rep.priorites) : '')
-        + (rep.avertissements && rep.avertissements.length ? '<h2>Avertissements</h2>' + list(rep.avertissements, 'warn') : '')
-        + '<div class="disclaimer">Aide à la décision uniquement. Toute modification des paramètres de la pompe doit être validée par l\'équipe de diabétologie avant d\'être appliquée.</div>'
-        + '<div class="foot">Rapport généré par FollowDIA — analyse ' + asstEsc(r.model || ASST_MODEL)
-        + '. Bolus : données de la pompe. Glucides : saisies FollowDIA si disponibles, sinon pompe.</div>'
-        + '</body></html>';
+    // ---- Profil recommandé : toujours sur une page entière ----
+    const rows = rep.plages_proposees || [];
+    if (rows.length) {
+        doc.newPage();
+        doc.text('Profil recommandé', L, doc.y, 15, true, DARK);
+        doc.y -= 15;
+        doc.text('Les valeurs modifiées sont en gras et surlignées ; l\'ancienne valeur suit entre parenthèses.',
+            L, doc.y, 8.5, false, GREY);
+        doc.y -= 16;
+
+        const cols = [
+            { title: 'Plage', w: 88, align: 'left' },
+            { title: 'Basal U/h', w: 96, align: 'left' },
+            { title: 'Ratio g/U', w: 96, align: 'left' },
+            { title: 'Sensib.', w: 96, align: 'left' },
+            { title: 'Cible', w: CW - 88 - 96 * 3, align: 'left' },
+        ];
+        const rowH = 19;
+
+        // En-tête du tableau
+        doc.rect(L, doc.y - 14, CW, 18, [0.93, 0.94, 0.96]);
+        let x = L;
+        cols.forEach(c => {
+            doc.text(c.title, x + 5, doc.y - 9, 9, true, DARK);
+            x += c.w;
+        });
+        doc.y -= 18;
+
+        rows.forEach((p, idx) => {
+            const cells = [
+                { txt: p.debut + ' - ' + p.fin, changed: false },
+                { txt: p.basal_propose, old: p.basal_actuel },
+                { txt: p.ratio_propose, old: p.ratio_actuel },
+                { txt: p.isf_propose, old: p.isf_actuel },
+                { txt: p.cible_proposee, old: p.cible_actuelle },
+            ];
+            if (idx % 2 === 1) doc.rect(L, doc.y - rowH + 4, CW, rowH, [0.975, 0.975, 0.98]);
+            let cx = L;
+            cells.forEach((c, i) => {
+                const changed = i > 0 && c.old != null && c.txt != null && c.txt !== c.old;
+                if (changed) doc.rect(cx, doc.y - rowH + 4, cols[i].w, rowH, [1, 0.93, 0.79]);
+                const label = c.txt != null ? String(c.txt) : '-';
+                doc.text(label, cx + 5, doc.y - 9, 9.5, changed, changed ? CHANGE : DARK);
+                if (changed) {
+                    const wLabel = pdfTextWidth(label, 9.5, true);
+                    doc.text('(' + c.old + ')', cx + 8 + wLabel, doc.y - 9, 7.5, false, GREY);
+                }
+                cx += cols[i].w;
+            });
+            doc.line(L, doc.y - rowH + 4, R, doc.y - rowH + 4, [0.86, 0.86, 0.88]);
+            doc.y -= rowH;
+        });
+
+        // Totaux
+        let nChanged = 0, totalBasal = 0;
+        rows.forEach(p => {
+            ['basal', 'ratio', 'isf', 'cible'].forEach(k => {
+                const a = p[k === 'cible' ? 'cible_actuelle' : k + '_actuel'];
+                const b = p[k === 'cible' ? 'cible_proposee' : k + '_propose'];
+                if (a != null && b != null && a !== b) nChanged++;
+            });
+            const h = ((asstHmToMs(p.fin) || 24 * 3600000) - asstHmToMs(p.debut)) / 3600000;
+            totalBasal += (p.basal_propose || 0) * (h > 0 ? h : 0);
+        });
+        doc.y -= 8;
+        doc.text(rows.length + ' plages  ·  ' + nChanged + ' paramètre' + (nChanged > 1 ? 's modifiés' : ' modifié')
+            + '  ·  Basal quotidien proposé : ' + (Math.round(totalBasal * 100) / 100) + ' U/24 h',
+            L, doc.y, 9, true, DARK);
+        doc.y -= 18;
+
+        // Justifications sous le tableau
+        const withJust = rows.filter(p => p.justification);
+        if (withJust.length) {
+            heading('Justification par plage');
+            withJust.forEach(p => {
+                const label = p.debut + ' - ' + p.fin;
+                const labelW = pdfTextWidth(label, 9, true) + 10;
+                pdfWrap(p.justification, CW - labelW, 9, false).forEach((line, j) => {
+                    doc.ensure(13);
+                    if (j === 0) doc.text(label, L, doc.y, 9, true, ACCENT);
+                    doc.text(line, L + labelW, doc.y, 9, false, DARK);
+                    doc.y -= 12;
+                });
+                doc.y -= 3;
+            });
+        }
+    }
+
+    // ---- Sections textuelles ----
+    if (rep.qualite_donnees) {
+        heading('Qualité des données');
+        paragraph(rep.qualite_donnees);
+    }
+    if (rep.priorites && rep.priorites.length) {
+        heading('Priorités');
+        bullets(rep.priorites);
+    }
+    if (rep.avertissements && rep.avertissements.length) {
+        heading('Avertissements');
+        bullets(rep.avertissements, CHANGE);
+    }
+
+    // ---- Clause de sécurité ----
+    doc.ensure(58);
+    doc.y -= 8;
+    const disclaimer = 'Aide à la décision uniquement. Toute modification des paramètres de la pompe doit être '
+        + 'validée par l\'équipe de diabétologie avant d\'être appliquée.';
+    const dLines = pdfWrap(disclaimer, CW - 20, 9, true);
+    const boxH = dLines.length * 12 + 14;
+    doc.rect(L, doc.y - boxH + 10, CW, boxH, [0.97, 0.95, 0.90]);
+    doc.rect(L, doc.y - boxH + 10, CW, boxH, [0.8, 0.7, 0.5], true);
+    dLines.forEach((line, i) => {
+        doc.text(line, L + 10, doc.y - 4 - i * 12, 9, true, [0.45, 0.3, 0.05]);
+    });
+    doc.y -= boxH + 6;
+
+    // ---- Provenance ----
+    doc.ensure(24);
+    doc.text('Bolus : données de la pompe. Glucides : saisies FollowDIA si disponibles, sinon pompe.',
+        L, doc.y, 7.5, false, GREY);
+    doc.y -= 10;
+    doc.text('Rapport généré localement par FollowDIA  ·  analyse ' + (r.model || ASST_MODEL),
+        L, doc.y, 7.5, false, GREY);
+
+    return doc.build();
 }
 
-function asstOpenPdfReport() {
-    const html = asstBuildReportHtml();
-    if (!html) { toast('Aucune analyse à exporter'); return; }
-    const w = window.open('', '_blank');
-    if (!w) { toast('Autorisez les fenêtres pop-up pour générer le rapport'); return; }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    // Laisse la mise en page se faire avant d'ouvrir la boîte d'impression
-    setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* l'utilisateur imprimera manuellement */ } }, 400);
+function asstPdfFilename() {
+    const reports = asstGetReports();
+    const d = reports.length ? new Date(reports[0].ts) : new Date();
+    const stamp = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    return 'FollowDIA_analyse_' + stamp + '.pdf';
+}
+
+async function asstExportPdf() {
+    let bytes;
+    try {
+        bytes = asstBuildPdfBytes();
+    } catch (e) {
+        console.error('PDF build error:', e);
+        toast('Impossible de générer le PDF');
+        return;
+    }
+    if (!bytes) { toast('Aucune analyse à exporter'); return; }
+
+    const filename = asstPdfFilename();
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+
+    // Sur mobile, la feuille de partage du système est le plus pratique ;
+    // sinon on retombe sur un téléchargement classique.
+    try {
+        if (navigator.canShare && navigator.share) {
+            const file = new File([blob], filename, { type: 'application/pdf' });
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: 'Analyse FollowDIA' });
+                return;
+            }
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') return; // partage annulé par l'utilisateur
+        console.warn('Partage indisponible, téléchargement :', e && e.message);
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toast('PDF enregistré : ' + filename);
 }
 
 function renderAsstReport() {
