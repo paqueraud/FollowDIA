@@ -33,6 +33,7 @@
         <nav class="nav-tabs">
             <button class="nav-tab active" data-tab="meals">Repas</button>
             <button class="nav-tab" data-tab="glucose">Glycémie</button>
+            <button class="nav-tab" data-tab="synthese">Synthèse</button>
             <button class="nav-tab" data-tab="dashboard">Tableau de bord</button>
             <button class="nav-tab" data-tab="foods">Aliments</button>
         </nav>
@@ -90,6 +91,12 @@
                 <div class="glucose-chart-container">
                     <canvas id="glucose-chart"></canvas>
                 </div>
+            </div>
+
+            <!-- Synthese Tab -->
+            <div id="tab-synthese" class="tab-panel">
+                <div id="synth-status" style="font-size:calc(13px * var(--fs, 1));color:var(--text-dim);text-align:center;"></div>
+                <div id="synth-content"></div>
             </div>
 
             <!-- Dashboard Tab -->

@@ -1558,6 +1558,176 @@ function _initGlucoseChartGestures() {
 }
 
 // ============================================================
+// SYNTHESE (TIR / GMI / CV)
+// ============================================================
+let synthData = [];          // 30 jours de glycémies pour les statistiques
+let _synthFetchedAt = 0;
+const SYNTH_CACHE_MS = 5 * 60 * 1000;
+
+async function fetchSynthGlucose() {
+    const url = settings.nightscoutUrl || localStorage.getItem('followdia_ns_url');
+    if (!url) throw new Error('URL Nightscout non configurée (voir Paramètres)');
+
+    const token = settings.nightscoutToken || localStorage.getItem('followdia_ns_token') || '';
+    const baseUrl = url.replace(/\/+$/, '');
+    const from = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    let apiUrl = `${baseUrl}/api/v1/entries/sgv.json?find[dateString][$gte]=${new Date(from).toISOString()}&count=9000`;
+    if (token) apiUrl += `&token=${token}`;
+
+    const resp = await fetch(apiUrl);
+    if (!resp.ok) throw new Error(`Erreur ${resp.status} lors de la récupération des glycémies`);
+    const data = await resp.json();
+    if (!Array.isArray(data)) throw new Error('Réponse Nightscout invalide');
+
+    synthData = data
+        .filter(e => e && typeof e.date === 'number' && (e.sgv > 0 || e.value > 0))
+        .sort((a, b) => a.date - b.date);
+    _synthFetchedAt = Date.now();
+}
+
+// Répartition en 5 zones (consensus international ATTD 2019), en % des mesures
+function computeTIRBands(values) {
+    const n = values.length;
+    if (n === 0) return null;
+    let vlow = 0, low = 0, inRange = 0, high = 0, vhigh = 0;
+    values.forEach(v => {
+        if (v < 54) vlow++;
+        else if (v < 70) low++;
+        else if (v <= 180) inRange++;
+        else if (v <= 250) high++;
+        else vhigh++;
+    });
+    return {
+        n,
+        vlow: vlow / n * 100,
+        low: low / n * 100,
+        inRange: inRange / n * 100,
+        high: high / n * 100,
+        vhigh: vhigh / n * 100,
+    };
+}
+
+function computeGlucoseStats(values) {
+    const n = values.length;
+    if (n < 2) return null;
+    const mean = values.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
+    const cv = mean > 0 ? sd / mean * 100 : 0;
+    const gmi = 3.31 + 0.02392 * mean; // Bergenstal 2018
+    return { n, mean, sd, cv, gmi };
+}
+
+function synthValuesSince(fromMs) {
+    return synthData.filter(e => e.date >= fromMs).map(e => e.sgv || e.value);
+}
+
+function tirBarHtml(bands) {
+    const segs = [
+        ['vlow', 'var(--tir-vlow)'],
+        ['low', 'var(--tir-low)'],
+        ['inRange', 'var(--tir-in)'],
+        ['high', 'var(--tir-high)'],
+        ['vhigh', 'var(--tir-vhigh)'],
+    ];
+    return `<div class="tir-bar">${segs
+        .filter(([k]) => bands[k] > 0)
+        .map(([k, color]) => `<div class="tir-seg" style="width:${bands[k]}%;background:${color}"></div>`)
+        .join('')}</div>`;
+}
+
+function tirLegendHtml(bands) {
+    const items = [
+        ['var(--tir-vhigh)', '&gt; 250', bands.vhigh],
+        ['var(--tir-high)', '181–250', bands.high],
+        ['var(--tir-in)', '70–180', bands.inRange],
+        ['var(--tir-low)', '54–69', bands.low],
+        ['var(--tir-vlow)', '&lt; 54', bands.vlow],
+    ];
+    return `<div class="tir-legend">${items
+        .map(([color, label, pct]) => `<div class="tir-legend-item"><span class="tir-dot" style="background:${color}"></span>${label}<b>${round1(pct)}%</b></div>`)
+        .join('')}</div>`;
+}
+
+function tirPeriodHtml(label, bands) {
+    if (!bands || bands.n < 12) {
+        return `<div class="tir-period">
+            <div class="tir-period-header"><span>${label}</span><span class="tir-nodata">Données insuffisantes</span></div>
+        </div>`;
+    }
+    const tirColor = bands.inRange >= 70 ? 'var(--success)' : bands.inRange >= 50 ? 'var(--warning)' : 'var(--danger)';
+    return `<div class="tir-period">
+        <div class="tir-period-header">
+            <span>${label}</span>
+            <span class="tir-period-pct" style="color:${tirColor}">${round1(bands.inRange)}% dans la cible</span>
+        </div>
+        ${tirBarHtml(bands)}
+        ${tirLegendHtml(bands)}
+    </div>`;
+}
+
+async function renderSynthese() {
+    const statusEl = $('#synth-status');
+    const content = $('#synth-content');
+    if (!content) return;
+
+    if (Date.now() - _synthFetchedAt > SYNTH_CACHE_MS) {
+        if (statusEl) statusEl.textContent = 'Récupération des glycémies (30 jours)...';
+        try {
+            await fetchSynthGlucose();
+            if (statusEl) statusEl.textContent = '';
+        } catch (e) {
+            console.error('Synthese fetch error:', e);
+            if (statusEl) statusEl.textContent = 'Erreur : ' + (e.message || e);
+            if (synthData.length === 0) { content.innerHTML = ''; return; }
+        }
+    }
+
+    const now = Date.now();
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+
+    const bandsDay = computeTIRBands(synthValuesSince(midnight.getTime()));
+    const bands7 = computeTIRBands(synthValuesSince(now - 7 * 24 * 3600 * 1000));
+    const bands30 = computeTIRBands(synthValuesSince(now - 30 * 24 * 3600 * 1000));
+
+    const values14 = synthValuesSince(now - 14 * 24 * 3600 * 1000);
+    const stats = computeGlucoseStats(values14);
+    // Taux de capture : mesures reçues / mesures attendues (1 toutes les 5 min sur 14 j)
+    const capture = stats ? Math.min(100, stats.n / (14 * 288) * 100) : 0;
+
+    let statsHtml = '';
+    if (stats) {
+        const gmiColor = stats.gmi < 7 ? 'var(--success)' : stats.gmi <= 7.5 ? 'var(--warning)' : 'var(--danger)';
+        const cvColor = stats.cv <= 36 ? 'var(--success)' : stats.cv <= 45 ? 'var(--warning)' : 'var(--danger)';
+        statsHtml = `<div class="synth-cards">
+            <div class="synth-card">
+                <div class="synth-card-title">GMI (HbA1c estimée)</div>
+                <div class="synth-card-value" style="color:${gmiColor}">${round1(stats.gmi)}%</div>
+                <div class="synth-card-sub">objectif &lt; 7%</div>
+                <div class="synth-card-sub">moyenne 14 j : ${Math.round(stats.mean)} mg/dl</div>
+            </div>
+            <div class="synth-card">
+                <div class="synth-card-title">Variabilité (CV)</div>
+                <div class="synth-card-value" style="color:${cvColor}">${round1(stats.cv)}%</div>
+                <div class="synth-card-sub">objectif &le; 36%</div>
+                <div class="synth-card-sub">écart-type : ${Math.round(stats.sd)} mg/dl</div>
+            </div>
+        </div>
+        ${capture < 70 ? `<p class="synth-note">⚠ Seulement ${Math.round(capture)}% des mesures attendues sur 14 j — GMI et CV à interpréter avec prudence.</p>` : ''}`;
+    }
+
+    content.innerHTML = `
+        <div class="card">
+            <h3>Temps dans la cible (TIR)</h3>
+            ${tirPeriodHtml("Aujourd'hui", bandsDay)}
+            ${tirPeriodHtml('7 derniers jours', bands7)}
+            ${tirPeriodHtml('30 derniers jours', bands30)}
+            <p class="synth-note">Objectifs (ATTD 2019) : &ge; 70% entre 70 et 180 mg/dl &bull; &lt; 4% sous 70 &bull; &lt; 1% sous 54 &bull; &lt; 25% au-dessus de 180 &bull; &lt; 5% au-dessus de 250.</p>
+        </div>
+        ${statsHtml}`;
+}
+
+// ============================================================
 // DASHBOARD
 // ============================================================
 function renderDashboard() {
@@ -2596,6 +2766,7 @@ async function initApp() {
             $(`#tab-${tab.dataset.tab}`).classList.add('active');
             sessionStorage.setItem('followdia_active_tab', tab.dataset.tab);
             if (tab.dataset.tab === 'dashboard') renderDashboard();
+            if (tab.dataset.tab === 'synthese') renderSynthese();
             if (tab.dataset.tab === 'glucose') { fetchGlucose(); setTimeout(() => { renderGlucoseChart(); _initGlucoseChartGestures(); }, 100); }
             if (tab.dataset.tab === 'foods') renderFoodList('');
             // Show/hide save bar

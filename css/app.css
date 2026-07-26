@@ -23,6 +23,12 @@
     --glucose-ok: #2ecc71;
     --glucose-high: #f39c12;
     --glucose-very-high: #e74c3c;
+    /* Zones TIR (consensus ATTD) */
+    --tir-vlow: #8e1e12;
+    --tir-low: #e74c3c;
+    --tir-in: #2ecc71;
+    --tir-high: #f39c12;
+    --tir-vhigh: #d35400;
 }
 
 /* Thème clair à contraste élevé (lisible en plein soleil) */
@@ -47,6 +53,11 @@
     --glucose-ok: #157a3a;
     --glucose-high: #8a5a00;
     --glucose-very-high: #c02717;
+    --tir-vlow: #7a1105;
+    --tir-low: #c02717;
+    --tir-in: #157a3a;
+    --tir-high: #8a5a00;
+    --tir-vhigh: #a34700;
 }
 
 /* Niveaux de taille de police globaux (petit = 1, défaut) */
@@ -1230,6 +1241,114 @@ canvas {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Synthese tab: TIR / GMI / CV */
+.tir-period {
+    margin-bottom: 18px;
+}
+
+.tir-period-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+    font-size: calc(14px * var(--fs, 1));
+    font-weight: 600;
+    color: var(--text-bright);
+}
+
+.tir-period-pct {
+    font-size: calc(15px * var(--fs, 1));
+    font-weight: 700;
+}
+
+.tir-nodata {
+    font-size: calc(12px * var(--fs, 1));
+    font-weight: 400;
+    color: var(--text-dim);
+}
+
+.tir-bar {
+    display: flex;
+    height: 26px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.tir-seg {
+    height: 100%;
+}
+
+.tir-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 6px;
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text);
+}
+
+.tir-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.tir-legend-item b {
+    font-size: calc(12px * var(--fs, 1));
+}
+
+.tir-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.synth-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.synth-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 12px;
+    text-align: center;
+}
+
+.synth-card-title {
+    font-size: calc(12px * var(--fs, 1));
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+
+.synth-card-value {
+    font-size: calc(30px * var(--fs, 1));
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 4px;
+}
+
+.synth-card-sub {
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text-dim);
+}
+
+.synth-note {
+    margin-top: 10px;
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text-dim);
+    line-height: 1.4;
+}
 
 /* Fatal error banner */
 #fatal-error-bar {
