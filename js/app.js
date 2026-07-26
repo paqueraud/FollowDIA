@@ -3060,6 +3060,31 @@ async function mdApiGet(token, path) {
     return resp.json();
 }
 
+// Décrit la forme d'une réponse (clés uniquement, jamais de valeurs) pour
+// que le message d'erreur dise précisément ce qui a été reçu.
+function mdDescribeShape(o, depth) {
+    depth = depth || 0;
+    if (o == null) return 'vide';
+    if (Array.isArray(o)) {
+        return 'liste(' + o.length + ')' + (o.length && depth < 2 ? ' de ' + mdDescribeShape(o[0], depth + 1) : '');
+    }
+    if (typeof o === 'object') {
+        const keys = Object.keys(o);
+        if (!keys.length) return 'objet vide';
+        let s = 'objet{' + keys.slice(0, 6).join(',') + (keys.length > 6 ? ',…' + keys.length : '') + '}';
+        if (depth < 2) s += ' → ' + keys[0] + ': ' + mdDescribeShape(o[keys[0]], depth + 1);
+        return s;
+    }
+    return typeof o;
+}
+
+// Normalise « tableau OU objet indexé » en tableau
+function mdAsList(v) {
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === 'object') return Object.values(v);
+    return [];
+}
+
 // Trouve le tableau de journées quel que soit l'emplacement dans la réponse
 function mdFindDays(payload) {
     const looksLikeDay = o => o && typeof o === 'object'
@@ -3168,15 +3193,12 @@ function mdBuildPayload(rawList, pumpRaw) {
             return;
         }
 
-        // Cas 2 : listes plates à regrouper par date
+        // Cas 2 : listes ou objets indexés à regrouper par date
         if (!raw || typeof raw !== 'object') return;
-        // Forme reconnue dès qu'un tableau attendu est présent, même si tout
-        // est hors fenêtre : cela distingue « rien de récent » de « format inconnu »
-        if (Array.isArray(raw.data) || Array.isArray(raw.cgm)) sawAnything = true;
 
-        const entryList = Array.isArray(raw.data) ? raw.data : [];
-        entryList.forEach(e => {
-            const ds = mdNormalizeDate(e.date || e.day);
+        // hintDate : date déduite de la clé quand la réponse est indexée par date
+        const addEntry = (e, hintDate) => {
+            const ds = mdNormalizeDate(e.date || e.day) || hintDate;
             if (!ds || !inWindow(ds)) return;
             const o = mdNormalizeEntry(e);
             if (!o) return;
@@ -3184,42 +3206,98 @@ function mdBuildPayload(rawList, pumpRaw) {
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).entries.push(o);
-        });
-
-        const cgmList = Array.isArray(raw.cgm) ? raw.cgm : (raw.cgm && Array.isArray(raw.cgm.data) ? raw.cgm.data : []);
-        cgmList.forEach(p => {
+        };
+        const addCgm = (p, hintDate) => {
             const ts = Date.parse(p.date || p.time || p.datetime);
             const v = mdCgmValue(p.value != null ? p.value : p.sgv);
-            if (isNaN(ts) || !(v > 20 && v < 600)) return;
-            const d = new Date(ts);
-            const ds = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-            if (!inWindow(ds)) return;
-            const key = 'c|' + ts;
+            if (!(v > 20 && v < 600)) return;
+            let ds, stamp;
+            if (!isNaN(ts)) {
+                const d = new Date(ts);
+                ds = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+                stamp = ts;
+            } else if (hintDate) {
+                ds = hintDate;
+                stamp = Date.parse(hintDate + 'T' + (mdNormalizeTime(p.time) || '00:00') + ':00');
+            }
+            if (!ds || isNaN(stamp) || !inWindow(ds)) return;
+            const key = 'c|' + stamp;
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
-            dayFor(ds).cgm.push([ts, v]);
-        });
-
-        const clList = Array.isArray(raw.closed_loop) ? raw.closed_loop : [];
-        clList.forEach(p => {
-            if (!p.start || !p.end) return;
-            const ds = mdNormalizeDate(p.start);
+            dayFor(ds).cgm.push([stamp, v]);
+        };
+        const addCl = (p, hintDate) => {
+            if (!p || !p.start || !p.end) return;
+            const ds = mdNormalizeDate(p.start) || hintDate;
             if (!ds || !inWindow(ds)) return;
             const key = 'l|' + p.start + '|' + p.end;
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).cl.push({ s: p.start, e: p.end, m: p.mode });
-        });
+        };
+
+        // Bloc « journée » : {data:[…], cgm:[…], closed_loop:[…]}
+        const consumeDayBlock = (block, hintDate) => {
+            if (!block || typeof block !== 'object') return false;
+            let used = false;
+            if (block.data != null) { mdAsList(block.data).forEach(e => addEntry(e, hintDate)); used = true; }
+            if (block.cgm != null) { mdAsList(block.cgm).forEach(p => addCgm(p, hintDate)); used = true; }
+            if (block.closed_loop != null) { mdAsList(block.closed_loop).forEach(p => addCl(p, hintDate)); used = true; }
+            return used;
+        };
+
+        // 2a. `data` indexé par date : { "2026-07-01": {data, cgm, …} | [entrées] }
+        if (raw.data && !Array.isArray(raw.data) && typeof raw.data === 'object') {
+            Object.keys(raw.data).forEach(k => {
+                const val = raw.data[k];
+                const hintDate = mdNormalizeDate(k) || (val && mdNormalizeDate(val.date));
+                sawAnything = true;
+                if (Array.isArray(val)) val.forEach(e => addEntry(e, hintDate));
+                else if (!consumeDayBlock(val, hintDate) && val && typeof val === 'object') addEntry(val, hintDate);
+            });
+        } else if (Array.isArray(raw.data)) {
+            sawAnything = true;
+            raw.data.forEach(e => {
+                // Un élément peut être une entrée simple ou un bloc journée
+                const hintDate = mdNormalizeDate(e && (e.date || e.day));
+                if (!consumeDayBlock(e, hintDate)) addEntry(e, hintDate);
+            });
+        }
+
+        // 2b. `cgm` et `closed_loop` au niveau racine (liste ou objet indexé par date)
+        if (raw.cgm != null) {
+            sawAnything = true;
+            if (Array.isArray(raw.cgm)) raw.cgm.forEach(p => addCgm(p, null));
+            else if (typeof raw.cgm === 'object') {
+                Object.keys(raw.cgm).forEach(k => {
+                    const hintDate = mdNormalizeDate(k);
+                    mdAsList(raw.cgm[k]).forEach(p => addCgm(p, hintDate));
+                });
+            }
+        }
+        if (raw.closed_loop != null) {
+            if (Array.isArray(raw.closed_loop)) raw.closed_loop.forEach(p => addCl(p, null));
+            else if (typeof raw.closed_loop === 'object') {
+                Object.keys(raw.closed_loop).forEach(k => {
+                    const hintDate = mdNormalizeDate(k);
+                    mdAsList(raw.closed_loop[k]).forEach(p => addCl(p, hintDate));
+                });
+            }
+        }
     });
 
     if (!sawAnything) {
         const first = raws.find(Boolean);
-        const keys = first && typeof first === 'object' ? Object.keys(first).slice(0, 8).join(', ') : typeof first;
-        throw new Error('Format de données myDiabby inattendu (champs reçus : ' + keys + ')');
+        throw new Error('Format myDiabby non reconnu — data : ' + mdDescribeShape(first && first.data)
+            + ' | cgm : ' + mdDescribeShape(first && first.cgm));
     }
 
     const out = [...dayMap.values()].filter(d => d.cgm.length || d.entries.length);
-    if (!out.length) throw new Error('Aucune donnée exploitable sur les 90 derniers jours');
+    if (!out.length) {
+        const first = raws.find(Boolean);
+        throw new Error('Données reçues mais aucune journée exploitable sur 90 jours — data : '
+            + mdDescribeShape(first && first.data));
+    }
     out.forEach(d => d.cgm.sort((a, b) => a[0] - b[0]));
     out.sort((a, b) => a.date < b.date ? -1 : 1);
 
@@ -3324,7 +3402,10 @@ async function asstSyncMyDiabby() {
         } else if (/identifiant|mot de passe/i.test(msg)) {
             hint = 'Identifiant ou mot de passe myDiabby incorrect (Paramètres → myDiabby).';
         }
-        if (statusEl) statusEl.innerHTML = '<span class="asst-warn">✗ ' + asstEsc(hint) + '</span>';
+        if (statusEl) {
+            statusEl.innerHTML = '<span class="asst-warn">✗ ' + asstEsc(hint) + '</span>'
+                + (/non reconnu|exploitable/.test(msg) ? '<div class="asst-dim">Copiez ce message pour le signaler : la structure reçue y est décrite.</div>' : '');
+        }
         toast('Échec de la récupération myDiabby');
     } finally {
         if (btn) btn.disabled = false;
