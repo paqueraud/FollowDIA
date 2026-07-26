@@ -1,4 +1,4 @@
-/* FollowDIA - Main Application */
+﻿/* FollowDIA - Main Application */
 'use strict';
 const APP_VERSION = '20260322a';
 
@@ -3085,6 +3085,56 @@ function mdAsList(v) {
     return [];
 }
 
+// Une clé n'est une date que si elle en a strictement la forme
+// (sinon « 0 » ou « 12 » seraient interprétés comme des dates)
+function mdDateKey(k) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(k)) ? String(k) : null;
+}
+
+// Parcourt toute la réponse et reconnaît les données à leur FORME plutôt
+// qu'au nom des champs : robuste aux variations de l'API myDiabby.
+function mdHarvest(root, handlers) {
+    const seen = new Set();
+    const walk = (node, hintDate, depth) => {
+        if (!node || typeof node !== 'object' || depth > 8) return;
+        if (seen.has(node)) return;
+        seen.add(node);
+
+        if (Array.isArray(node)) {
+            node.forEach(v => walk(v, hintDate, depth + 1));
+            return;
+        }
+
+        const ownDate = mdNormalizeDate(node.date || node.day) || hintDate;
+
+        // Période boucle fermée : { start, end, mode }
+        if (node.start && node.end && node.mode !== undefined) {
+            handlers.cl(node, ownDate);
+            return;
+        }
+        // Entrée du carnet : bolus, repas ou glycémie capillaire
+        if (node.insulin || node.meal || node.glycemia) {
+            handlers.entry(node, ownDate);
+            return;
+        }
+        // Point capteur : une valeur numérique + un horodatage, sans autre structure
+        const rawVal = node.value != null ? node.value : node.sgv;
+        if (rawVal != null && typeof rawVal !== 'object' && (node.date || node.time || node.datetime || hintDate)) {
+            handlers.cgm(node, ownDate);
+            return;
+        }
+        // Réglages de pompe repérés à leurs champs caractéristiques
+        if (node.carbRatios || node.insulinSensitivities || node.basalSchedules) {
+            handlers.pump(node);
+        }
+
+        Object.keys(node).forEach(k => {
+            walk(node[k], mdDateKey(k) || ownDate, depth + 1);
+        });
+    };
+    walk(root, null, 0);
+}
+
 // Trouve le tableau de journées quel que soit l'emplacement dans la réponse
 function mdFindDays(payload) {
     const looksLikeDay = o => o && typeof o === 'object'
@@ -3157,6 +3207,10 @@ function mdBuildPayload(rawList, pumpRaw) {
     const raws = Array.isArray(rawList) ? rawList : [rawList];
     const cutoff = Date.now() - 90 * 86400000;
     const dayMap = new Map();
+    const seenKeys = new Set();
+    let nEntries = 0, nCgm = 0, nOutOfWindow = 0;
+    let pumpFound = null;
+
     const dayFor = ds => {
         if (!dayMap.has(ds)) dayMap.set(ds, { date: ds, cgm: [], entries: [], cl: [] });
         return dayMap.get(ds);
@@ -3165,52 +3219,25 @@ function mdBuildPayload(rawList, pumpRaw) {
         const ts = new Date(ds + 'T12:00:00').getTime();
         return !isNaN(ts) && ts >= cutoff;
     };
-    const seenKeys = new Set();
-    let sawAnything = false;
 
-    raws.filter(Boolean).forEach(raw => {
-        // Cas 1 : journées déjà groupées
-        const rawDays = mdFindDays(raw);
-        if (rawDays) {
-            sawAnything = true;
-            rawDays.forEach(d => {
-                const ds = mdNormalizeDate(d.date || d.day);
-                if (!ds || !inWindow(ds)) return;
-                const day = dayFor(ds);
-                (d.cgm || []).forEach(p => {
-                    const ts = Date.parse(p.date || p.time || p.datetime);
-                    const v = mdCgmValue(p.value != null ? p.value : p.sgv);
-                    if (!isNaN(ts) && v > 20 && v < 600) day.cgm.push([ts, v]);
-                });
-                (d.data || []).forEach(e => {
-                    const o = mdNormalizeEntry(e);
-                    if (o) day.entries.push(o);
-                });
-                (d.closed_loop || []).forEach(p => {
-                    if (p.start && p.end) day.cl.push({ s: p.start, e: p.end, m: p.mode });
-                });
-            });
-            return;
-        }
-
-        // Cas 2 : listes ou objets indexés à regrouper par date
-        if (!raw || typeof raw !== 'object') return;
-
-        // hintDate : date déduite de la clé quand la réponse est indexée par date
-        const addEntry = (e, hintDate) => {
+    const handlers = {
+        entry(e, hintDate) {
             const ds = mdNormalizeDate(e.date || e.day) || hintDate;
-            if (!ds || !inWindow(ds)) return;
+            if (!ds) return;
+            if (!inWindow(ds)) { nOutOfWindow++; return; }
             const o = mdNormalizeEntry(e);
             if (!o) return;
-            const key = 'e|' + ds + '|' + o.t + '|' + (o.ins ? o.ins.b + '/' + o.ins.c : '') + '|' + (o.carb != null ? o.carb : '') + '|' + (o.gly != null ? o.gly : '');
+            const key = 'e|' + ds + '|' + o.t + '|' + (o.ins ? o.ins.b + '/' + o.ins.c : '')
+                + '|' + (o.carb != null ? o.carb : '') + '|' + (o.gly != null ? o.gly : '');
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).entries.push(o);
-        };
-        const addCgm = (p, hintDate) => {
-            const ts = Date.parse(p.date || p.time || p.datetime);
+            nEntries++;
+        },
+        cgm(p, hintDate) {
             const v = mdCgmValue(p.value != null ? p.value : p.sgv);
             if (!(v > 20 && v < 600)) return;
+            const ts = Date.parse(p.date || p.datetime || '');
             let ds, stamp;
             if (!isNaN(ts)) {
                 const d = new Date(ts);
@@ -3220,98 +3247,45 @@ function mdBuildPayload(rawList, pumpRaw) {
                 ds = hintDate;
                 stamp = Date.parse(hintDate + 'T' + (mdNormalizeTime(p.time) || '00:00') + ':00');
             }
-            if (!ds || isNaN(stamp) || !inWindow(ds)) return;
+            if (!ds || isNaN(stamp)) return;
+            if (!inWindow(ds)) { nOutOfWindow++; return; }
             const key = 'c|' + stamp;
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).cgm.push([stamp, v]);
-        };
-        const addCl = (p, hintDate) => {
-            if (!p || !p.start || !p.end) return;
+            nCgm++;
+        },
+        cl(p, hintDate) {
             const ds = mdNormalizeDate(p.start) || hintDate;
             if (!ds || !inWindow(ds)) return;
             const key = 'l|' + p.start + '|' + p.end;
             if (seenKeys.has(key)) return;
             seenKeys.add(key);
             dayFor(ds).cl.push({ s: p.start, e: p.end, m: p.mode });
-        };
-
-        // Bloc « journée » : {data:[…], cgm:[…], closed_loop:[…]}
-        const consumeDayBlock = (block, hintDate) => {
-            if (!block || typeof block !== 'object') return false;
-            let used = false;
-            if (block.data != null) { mdAsList(block.data).forEach(e => addEntry(e, hintDate)); used = true; }
-            if (block.cgm != null) { mdAsList(block.cgm).forEach(p => addCgm(p, hintDate)); used = true; }
-            if (block.closed_loop != null) { mdAsList(block.closed_loop).forEach(p => addCl(p, hintDate)); used = true; }
-            return used;
-        };
-
-        // 2a. `data` indexé par date : { "2026-07-01": {data, cgm, …} | [entrées] }
-        if (raw.data && !Array.isArray(raw.data) && typeof raw.data === 'object') {
-            Object.keys(raw.data).forEach(k => {
-                const val = raw.data[k];
-                const hintDate = mdNormalizeDate(k) || (val && mdNormalizeDate(val.date));
-                sawAnything = true;
-                if (Array.isArray(val)) val.forEach(e => addEntry(e, hintDate));
-                else if (!consumeDayBlock(val, hintDate) && val && typeof val === 'object') addEntry(val, hintDate);
-            });
-        } else if (Array.isArray(raw.data)) {
-            sawAnything = true;
-            raw.data.forEach(e => {
-                // Un élément peut être une entrée simple ou un bloc journée
-                const hintDate = mdNormalizeDate(e && (e.date || e.day));
-                if (!consumeDayBlock(e, hintDate)) addEntry(e, hintDate);
-            });
+        },
+        pump(node) {
+            if (!pumpFound && node && node.carbRatios) pumpFound = node;
         }
+    };
 
-        // 2b. `cgm` et `closed_loop` au niveau racine (liste ou objet indexé par date)
-        if (raw.cgm != null) {
-            sawAnything = true;
-            if (Array.isArray(raw.cgm)) raw.cgm.forEach(p => addCgm(p, null));
-            else if (typeof raw.cgm === 'object') {
-                Object.keys(raw.cgm).forEach(k => {
-                    const hintDate = mdNormalizeDate(k);
-                    mdAsList(raw.cgm[k]).forEach(p => addCgm(p, hintDate));
-                });
-            }
-        }
-        if (raw.closed_loop != null) {
-            if (Array.isArray(raw.closed_loop)) raw.closed_loop.forEach(p => addCl(p, null));
-            else if (typeof raw.closed_loop === 'object') {
-                Object.keys(raw.closed_loop).forEach(k => {
-                    const hintDate = mdNormalizeDate(k);
-                    mdAsList(raw.closed_loop[k]).forEach(p => addCl(p, hintDate));
-                });
-            }
-        }
-    });
-
-    if (!sawAnything) {
-        const first = raws.find(Boolean);
-        throw new Error('Format myDiabby non reconnu — data : ' + mdDescribeShape(first && first.data)
-            + ' | cgm : ' + mdDescribeShape(first && first.cgm));
-    }
+    raws.filter(Boolean).forEach(raw => mdHarvest(raw, handlers));
+    (Array.isArray(pumpRaw) ? pumpRaw : [pumpRaw]).filter(Boolean)
+        .forEach(p => mdHarvest(p, handlers));
 
     const out = [...dayMap.values()].filter(d => d.cgm.length || d.entries.length);
     if (!out.length) {
         const first = raws.find(Boolean);
-        throw new Error('Données reçues mais aucune journée exploitable sur 90 jours — data : '
-            + mdDescribeShape(first && first.data));
+        const why = nOutOfWindow
+            ? 'toutes les données reçues sont antérieures à 90 jours'
+            : 'aucune donnée reconnue';
+        throw new Error('Import impossible : ' + why + ' — reçu : ' + mdDescribeShape(first));
     }
     out.forEach(d => d.cgm.sort((a, b) => a[0] - b[0]));
     out.sort((a, b) => a.date < b.date ? -1 : 1);
 
-    // Réglages de pompe : plusieurs emplacements possibles selon l'endpoint
-    const withPump = raws.find(r => r && (r.pumpsettings || (r.patient && r.patient.pumpsettings)));
-    const fromData = withPump
-        ? ((withPump.patient && withPump.patient.pumpsettings) || withPump.pumpsettings)
-        : null;
-    const psSrc = (pumpRaw && (pumpRaw.current || pumpRaw))
-        || (fromData && (fromData.current || fromData))
-        || null;
-    const psData = psSrc && psSrc.data ? psSrc.data : psSrc;
-    const pumpSettings = psData && psData.carbRatios ? {
-        date: psSrc.date || psData.time || null,
+    const psData = pumpFound && pumpFound.carbRatios ? pumpFound : null;
+    const pumpSettings = psData ? {
+        date: psData.time || null,
         activeSchedule: psData.activeSchedule,
         basal: psData.basalSchedules,
         carbRatios: psData.carbRatios,
@@ -3325,7 +3299,8 @@ function mdBuildPayload(rawList, pumpRaw) {
         exportedAt: new Date().toISOString(),
         source: 'api',
         pumpSettings,
-        days: out
+        days: out,
+        stats: { entries: nEntries, cgm: nCgm }
     };
 }
 
@@ -3365,18 +3340,20 @@ async function asstSyncMyDiabby() {
         }
         if (!raws.length) throw new Error('Aucune réponse de myDiabby');
 
-        let pumpRaw = null;
-        try {
-            pumpRaw = await mdApiGet(token, '/api/pumpsettings/');
-        } catch (e) {
-            console.warn('pumpsettings endpoint indisponible, repli sur /api/data :', e.message);
+        // Les réglages de pompe accompagnent le profil ; on essaie les
+        // emplacements connus, sans bloquer l'import s'ils sont absents.
+        if (statusEl) statusEl.textContent = 'Récupération des réglages de pompe...';
+        const pumpRaws = [];
+        for (const path of ['/api/account', '/api/pumpsettings/']) {
+            try {
+                pumpRaws.push(await mdApiGet(token, path));
+            } catch (e) {
+                console.warn('Endpoint ' + path + ' indisponible :', e.message);
+            }
         }
 
-        const payload = mdBuildPayload(raws, pumpRaw);
-        const nCgm = payload.days.reduce((a, d) => a + d.cgm.length, 0);
-        if (!nCgm) {
-            console.warn('Aucune glycémie capteur dans la réponse myDiabby');
-        }
+        const payload = mdBuildPayload(raws, pumpRaws);
+        const nCgm = payload.stats ? payload.stats.cgm : payload.days.reduce((a, d) => a + d.cgm.length, 0);
         if (!payload.pumpSettings) {
             console.warn('Réglages de pompe introuvables dans la réponse myDiabby');
         }
@@ -3412,74 +3389,6 @@ async function asstSyncMyDiabby() {
     }
 }
 
-// ------------------------------------------------------------
-// Bookmarklet d'extraction (repli si l'API est inaccessible)
-// ------------------------------------------------------------
-function asstExtractorSource() {
-    return function () {
-        try {
-            var inj = angular.element(document.body).injector();
-            var pds = inj.get('PatientDataService');
-            var patient = pds.getPatient();
-            var days = pds.getDataByDay(new Date().toISOString().slice(0, 10));
-            var cutoff = Date.now() - 90 * 86400000;
-            var out = [];
-            days.forEach(function (d) {
-                var ds = d.date && d.date.format ? d.date.format('YYYY-MM-DD') : null;
-                if (!ds || new Date(ds + 'T12:00:00').getTime() < cutoff) return;
-                var cgm = (d.cgm || []).map(function (p) {
-                    return [Date.parse(p.date), Math.round(parseFloat(p.value) * 100)];
-                }).filter(function (p) { return !isNaN(p[0]) && p[1] > 20 && p[1] < 600; });
-                var entries = (d.data || []).map(function (e) {
-                    var t = e.time;
-                    if (t && t.format) t = t.format('HH:mm');
-                    else if (typeof t === 'string' && t.indexOf('T') >= 0) {
-                        var dt = new Date(t);
-                        t = ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
-                    }
-                    var o = { t: String(t || '') };
-                    if (e.insulin) o.ins = { b: parseFloat(e.insulin.bolus) || 0, c: parseFloat(e.insulin.bolus_corr) || 0 };
-                    if (e.meal && e.meal.carb != null) o.carb = e.meal.carb;
-                    if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
-                    return o;
-                }).filter(function (o) { return o.ins || o.carb != null || o.gly != null; });
-                var cl = (d.closed_loop || []).map(function (p) { return { s: p.start, e: p.end, m: p.mode }; });
-                if (cgm.length || entries.length) out.push({ date: ds, cgm: cgm, entries: entries, cl: cl });
-            });
-            out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-            var ps = patient.pumpsettings && patient.pumpsettings.current ? patient.pumpsettings.current : null;
-            var payload = {
-                format: 'followdia-mydiabby-v1',
-                exportedAt: new Date().toISOString(),
-                pumpSettings: ps ? {
-                    date: ps.date,
-                    activeSchedule: ps.data.activeSchedule,
-                    basal: ps.data.basalSchedules,
-                    carbRatios: ps.data.carbRatios,
-                    isf: ps.data.insulinSensitivities,
-                    targets: ps.data.bgTargets,
-                    model: ps.data.model || null
-                } : null,
-                days: out
-            };
-            var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-            var a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'followdia_mydiabby.json';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            alert('Export FollowDIA : ' + out.length + ' jours exportes (fichier followdia_mydiabby.json).');
-        } catch (err) {
-            alert('Export FollowDIA impossible : ' + err.message + '. Ouvrez app.mydiabby.com et connectez-vous d abord.');
-        }
-    };
-}
-
-function asstBookmarkletUrl() {
-    const code = asstExtractorSource().toString().replace(/\n\s*/g, ' ');
-    return 'javascript:(' + encodeURIComponent(code) + ')()';
-}
 
 // ------------------------------------------------------------
 // Agrégation locale (gratuite) sur les données importées
@@ -3980,39 +3889,10 @@ function renderAssistant() {
     if (rateEl && document.activeElement !== rateEl) rateEl.value = cfg.usdToEur || 0.92;
 }
 
-function asstImportFile(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-        try {
-            const parsed = JSON.parse(reader.result);
-            if (parsed.format !== 'followdia-mydiabby-v1' || !Array.isArray(parsed.days) || !parsed.days.length) {
-                toast('Fichier invalide : utilisez l\'extracteur myDiabby');
-                return;
-            }
-            localStorage.setItem(ASST_DATA_KEY, JSON.stringify(parsed));
-            toast(parsed.days.length + ' jours importés');
-            renderAssistant();
-        } catch (e) {
-            console.error('Assistant import error:', e);
-            toast(e.name === 'QuotaExceededError' ? 'Stockage local plein' : 'Fichier illisible');
-        }
-    };
-    reader.readAsText(file);
-}
 
 function initAssistant() {
     const tabBtn = document.querySelector('.nav-tab[data-tab="assistant"]');
     if (tabBtn) tabBtn.addEventListener('click', renderAssistant);
-
-    const importBtn = $('#btn-asst-import');
-    const fileInput = $('#asst-file-input');
-    if (importBtn && fileInput) {
-        importBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files && fileInput.files[0]) asstImportFile(fileInput.files[0]);
-            fileInput.value = '';
-        });
-    }
 
     const clearBtn = $('#btn-asst-clear');
     if (clearBtn) clearBtn.addEventListener('click', () => {
