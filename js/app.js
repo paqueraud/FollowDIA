@@ -3105,56 +3105,131 @@ function mdNormalizeDate(d) {
     return null;
 }
 
-// Transforme la réponse brute de l'API en payload followdia-mydiabby-v1
-function mdBuildPayload(rawData, pumpRaw) {
-    const rawDays = mdFindDays(rawData);
-    if (!rawDays) {
-        const keys = rawData && typeof rawData === 'object' ? Object.keys(rawData).slice(0, 8).join(', ') : typeof rawData;
+function mdCgmValue(raw) {
+    const v = parseFloat(raw);
+    if (!(v > 0)) return NaN;
+    // myDiabby exprime les glycémies capteur en g/L (ex : 1.85) ; l'app travaille en mg/dl
+    return v < 30 ? Math.round(v * 100) : Math.round(v);
+}
+
+function mdNormalizeEntry(e) {
+    const o = { t: mdNormalizeTime(e.time || e.date) };
+    if (e.insulin) {
+        o.ins = {
+            b: parseFloat(e.insulin.bolus) || 0,
+            c: parseFloat(e.insulin.bolus_corr) || 0
+        };
+    }
+    if (e.meal && e.meal.carb != null) o.carb = parseFloat(e.meal.carb) || 0;
+    if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
+    return (o.t && (o.ins || o.carb != null || o.gly != null)) ? o : null;
+}
+
+// Transforme une ou plusieurs réponses brutes en payload followdia-mydiabby-v1.
+// L'API renvoie selon les cas des journées déjà groupées, ou des listes plates
+// (entrées + points capteur) à regrouper par date : les deux sont gérées.
+function mdBuildPayload(rawList, pumpRaw) {
+    const raws = Array.isArray(rawList) ? rawList : [rawList];
+    const cutoff = Date.now() - 90 * 86400000;
+    const dayMap = new Map();
+    const dayFor = ds => {
+        if (!dayMap.has(ds)) dayMap.set(ds, { date: ds, cgm: [], entries: [], cl: [] });
+        return dayMap.get(ds);
+    };
+    const inWindow = ds => {
+        const ts = new Date(ds + 'T12:00:00').getTime();
+        return !isNaN(ts) && ts >= cutoff;
+    };
+    const seenKeys = new Set();
+    let sawAnything = false;
+
+    raws.filter(Boolean).forEach(raw => {
+        // Cas 1 : journées déjà groupées
+        const rawDays = mdFindDays(raw);
+        if (rawDays) {
+            sawAnything = true;
+            rawDays.forEach(d => {
+                const ds = mdNormalizeDate(d.date || d.day);
+                if (!ds || !inWindow(ds)) return;
+                const day = dayFor(ds);
+                (d.cgm || []).forEach(p => {
+                    const ts = Date.parse(p.date || p.time || p.datetime);
+                    const v = mdCgmValue(p.value != null ? p.value : p.sgv);
+                    if (!isNaN(ts) && v > 20 && v < 600) day.cgm.push([ts, v]);
+                });
+                (d.data || []).forEach(e => {
+                    const o = mdNormalizeEntry(e);
+                    if (o) day.entries.push(o);
+                });
+                (d.closed_loop || []).forEach(p => {
+                    if (p.start && p.end) day.cl.push({ s: p.start, e: p.end, m: p.mode });
+                });
+            });
+            return;
+        }
+
+        // Cas 2 : listes plates à regrouper par date
+        if (!raw || typeof raw !== 'object') return;
+        // Forme reconnue dès qu'un tableau attendu est présent, même si tout
+        // est hors fenêtre : cela distingue « rien de récent » de « format inconnu »
+        if (Array.isArray(raw.data) || Array.isArray(raw.cgm)) sawAnything = true;
+
+        const entryList = Array.isArray(raw.data) ? raw.data : [];
+        entryList.forEach(e => {
+            const ds = mdNormalizeDate(e.date || e.day);
+            if (!ds || !inWindow(ds)) return;
+            const o = mdNormalizeEntry(e);
+            if (!o) return;
+            const key = 'e|' + ds + '|' + o.t + '|' + (o.ins ? o.ins.b + '/' + o.ins.c : '') + '|' + (o.carb != null ? o.carb : '') + '|' + (o.gly != null ? o.gly : '');
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            dayFor(ds).entries.push(o);
+        });
+
+        const cgmList = Array.isArray(raw.cgm) ? raw.cgm : (raw.cgm && Array.isArray(raw.cgm.data) ? raw.cgm.data : []);
+        cgmList.forEach(p => {
+            const ts = Date.parse(p.date || p.time || p.datetime);
+            const v = mdCgmValue(p.value != null ? p.value : p.sgv);
+            if (isNaN(ts) || !(v > 20 && v < 600)) return;
+            const d = new Date(ts);
+            const ds = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+            if (!inWindow(ds)) return;
+            const key = 'c|' + ts;
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            dayFor(ds).cgm.push([ts, v]);
+        });
+
+        const clList = Array.isArray(raw.closed_loop) ? raw.closed_loop : [];
+        clList.forEach(p => {
+            if (!p.start || !p.end) return;
+            const ds = mdNormalizeDate(p.start);
+            if (!ds || !inWindow(ds)) return;
+            const key = 'l|' + p.start + '|' + p.end;
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            dayFor(ds).cl.push({ s: p.start, e: p.end, m: p.mode });
+        });
+    });
+
+    if (!sawAnything) {
+        const first = raws.find(Boolean);
+        const keys = first && typeof first === 'object' ? Object.keys(first).slice(0, 8).join(', ') : typeof first;
         throw new Error('Format de données myDiabby inattendu (champs reçus : ' + keys + ')');
     }
 
-    const cutoff = Date.now() - 90 * 86400000;
-    const out = [];
-    rawDays.forEach(d => {
-        const ds = mdNormalizeDate(d.date || d.day);
-        if (!ds) return;
-        const dayTs = new Date(ds + 'T12:00:00').getTime();
-        if (isNaN(dayTs) || dayTs < cutoff) return;
-
-        const cgm = (d.cgm || []).map(p => {
-            const ts = Date.parse(p.date || p.time || p.datetime);
-            const raw = parseFloat(p.value != null ? p.value : p.sgv);
-            // myDiabby renvoie des g/L (ex 1.85) ; on convertit en mg/dl
-            const v = raw > 0 && raw < 30 ? Math.round(raw * 100) : Math.round(raw);
-            return [ts, v];
-        }).filter(p => !isNaN(p[0]) && p[1] > 20 && p[1] < 600);
-
-        const entries = (d.data || []).map(e => {
-            const o = { t: mdNormalizeTime(e.time || e.date) };
-            if (e.insulin) {
-                o.ins = {
-                    b: parseFloat(e.insulin.bolus) || 0,
-                    c: parseFloat(e.insulin.bolus_corr) || 0
-                };
-            }
-            if (e.meal && e.meal.carb != null) o.carb = parseFloat(e.meal.carb) || 0;
-            if (e.glycemia && e.glycemia.value != null) o.gly = parseFloat(e.glycemia.value);
-            return o;
-        }).filter(o => o.t && (o.ins || o.carb != null || o.gly != null));
-
-        const cl = (d.closed_loop || []).map(p => ({ s: p.start, e: p.end, m: p.mode }))
-            .filter(p => p.s && p.e);
-
-        if (cgm.length || entries.length) out.push({ date: ds, cgm, entries, cl });
-    });
-
+    const out = [...dayMap.values()].filter(d => d.cgm.length || d.entries.length);
     if (!out.length) throw new Error('Aucune donnée exploitable sur les 90 derniers jours');
+    out.forEach(d => d.cgm.sort((a, b) => a[0] - b[0]));
     out.sort((a, b) => a.date < b.date ? -1 : 1);
 
     // Réglages de pompe : plusieurs emplacements possibles selon l'endpoint
+    const withPump = raws.find(r => r && (r.pumpsettings || (r.patient && r.patient.pumpsettings)));
+    const fromData = withPump
+        ? ((withPump.patient && withPump.patient.pumpsettings) || withPump.pumpsettings)
+        : null;
     const psSrc = (pumpRaw && (pumpRaw.current || pumpRaw))
-        || (rawData && rawData.patient && rawData.patient.pumpsettings && rawData.patient.pumpsettings.current)
-        || (rawData && rawData.pumpsettings && rawData.pumpsettings.current)
+        || (fromData && (fromData.current || fromData))
         || null;
     const psData = psSrc && psSrc.data ? psSrc.data : psSrc;
     const pumpSettings = psData && psData.carbRatios ? {
@@ -3192,26 +3267,49 @@ async function asstSyncMyDiabby() {
 
     try {
         const token = await mdLogin(cfg.user, cfg.pass);
-        if (statusEl) statusEl.textContent = 'Récupération des données (90 jours)...';
-        const rawData = await mdApiGet(token, '/api/data');
+
+        // L'API se requête par fenêtres de dates (datefirst / datelast) ;
+        // on balaie 90 jours par tranches de 15 jours.
+        const fmt = d => d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+        const chunkDays = 15, totalDays = 90;
+        const raws = [];
+        for (let offset = 0; offset < totalDays; offset += chunkDays) {
+            const last = new Date(Date.now() - offset * 86400000);
+            const first = new Date(Date.now() - Math.min(offset + chunkDays - 1, totalDays - 1) * 86400000);
+            if (statusEl) {
+                statusEl.textContent = 'Récupération des données... ' + Math.round(offset / totalDays * 100) + '%';
+            }
+            try {
+                raws.push(await mdApiGet(token, '/api/data?datefirst=' + fmt(first) + '&datelast=' + fmt(last)));
+            } catch (e) {
+                console.warn('Fenêtre ' + fmt(first) + '→' + fmt(last) + ' ignorée :', e.message);
+            }
+        }
+        if (!raws.length) throw new Error('Aucune réponse de myDiabby');
 
         let pumpRaw = null;
         try {
             pumpRaw = await mdApiGet(token, '/api/pumpsettings/');
         } catch (e) {
-            console.warn('pumpsettings endpoint indisponible, repli sur /api/data', e.message);
+            console.warn('pumpsettings endpoint indisponible, repli sur /api/data :', e.message);
         }
 
-        const payload = mdBuildPayload(rawData, pumpRaw);
+        const payload = mdBuildPayload(raws, pumpRaw);
+        const nCgm = payload.days.reduce((a, d) => a + d.cgm.length, 0);
+        if (!nCgm) {
+            console.warn('Aucune glycémie capteur dans la réponse myDiabby');
+        }
         if (!payload.pumpSettings) {
             console.warn('Réglages de pompe introuvables dans la réponse myDiabby');
         }
         localStorage.setItem(ASST_DATA_KEY, JSON.stringify(payload));
 
         if (statusEl) {
-            statusEl.innerHTML = '<span class="asst-ok">✓ ' + payload.days.length + ' jours récupérés'
-                + (payload.pumpSettings ? ' (réglages pompe inclus)' : ' — réglages de pompe non trouvés')
-                + '</span>';
+            let extra = '';
+            if (!nCgm) extra += '<div class="asst-warn">⚠ Aucune glycémie capteur reçue : l\'analyse sera limitée.</div>';
+            if (!payload.pumpSettings) extra += '<div class="asst-warn">⚠ Réglages de pompe non trouvés.</div>';
+            statusEl.innerHTML = '<span class="asst-ok">✓ ' + payload.days.length + ' jours récupérés ('
+                + nCgm + ' mesures capteur)</span>' + extra;
         }
         toast(payload.days.length + ' jours récupérés depuis myDiabby');
         renderAssistant();
