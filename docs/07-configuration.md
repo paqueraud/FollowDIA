@@ -11,7 +11,7 @@
 
 **Temps nécessaire :** 15 minutes.
 
-> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.10). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
+> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.11). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
 >
 > **Pensez à appuyer sur « Sauvegarder »** en bas de la fenêtre : rien n'est enregistré tant que vous ne l'avez pas fait.
 
@@ -48,7 +48,38 @@ Pour information (utile en cas de diagnostic) :
 
 ---
 
-## 7.2 Paramètres par repas
+## 7.2 Profil de pompe — remplir les repas automatiquement
+
+Les ratios, sensibilités et cibles vivent d'abord **dans la pompe**, découpés en plages horaires. Le bouton **⟳ Mettre à jour le profil** va les chercher sur myDiabby et les reporte sur les quatre repas, sans ressaisie.
+
+**Comment le report est fait :** chaque repas prend les valeurs de la **plage horaire qui contient son heure** — c'est exactement ce que fait la pompe au moment du bolus. Avec les heures par défaut : Petit-déj 7 h 30, Déjeuner 12 h 00, Goûter 16 h 45, Dîner 19 h 00.
+
+Le profil complet s'affiche ensuite en tableau, dans le format de la pompe :
+
+| Plage | Basal U/h | Ratio g/U | Sensib. | Cible |
+|---|---|---|---|---|
+| 06:00–08:00 🌅 | 0,15 | 11,5 | 150 | 110 |
+| 12:00–15:00 ☀️ | 0,25 | 17 | 130 | 110 |
+
+- L'**icône du repas** marque la plage qui lui fournit ses valeurs.
+- Une valeur **modifiée depuis la dernière mise à jour** s'affiche en orange, l'ancienne barrée à côté : vous voyez d'un coup d'œil ce que votre diabétologue a changé.
+- Chaque repas porte une étiquette **profil pompe** ou **forcé à la main**.
+
+Ce bouton nécessite vos identifiants myDiabby (section 7.4). Il ne récupère que le profil — pas les 60 jours de données — et prend une seconde.
+
+> Le même report est proposé dans l'onglet **Assistant**, sous le profil affiché, par le bouton **Utiliser ce profil pour les repas** : il applique le profil déjà récupéré, sans nouvel appel à myDiabby.
+
+### Forcer les valeurs à la main
+
+Indispensable quand le profil de la pompe a été modifié mais que la pompe n'a pas encore été téléversée sur myDiabby.
+
+Modifiez simplement les champs de la section suivante et appuyez sur **Sauvegarder** : le repas passe en **forcé à la main** et n'est plus aligné sur le profil. Un bouton **Réappliquer le profil** apparaît alors pour revenir aux valeurs de la pompe, sans connexion réseau.
+
+La prochaine mise à jour du profil écrase les valeurs forcées — c'est voulu : quand la pompe a enfin été téléversée, c'est elle qui fait foi.
+
+---
+
+## 7.3 Paramètres par repas
 
 C'est le cœur du calcul. Chacun des quatre repas a ses propres valeurs.
 
@@ -64,7 +95,7 @@ Les repas sont proposés automatiquement selon l'heure : Petit-déjeuner de 4 h 
 
 ---
 
-## 7.3 myDiabby (données de la pompe)
+## 7.4 myDiabby (données de la pompe)
 
 Nécessaire **uniquement** pour l'onglet Assistant. Ignorez cette section si vous ne l'utilisez pas.
 
@@ -79,7 +110,7 @@ Nécessaire **uniquement** pour l'onglet Assistant. Ignorez cette section si vou
 
 ---
 
-## 7.4 Synchronisation GitHub
+## 7.5 Synchronisation GitHub
 
 Permet de retrouver les mêmes repas sur tous vos appareils. La procédure complète, avec la création du jeton, est décrite au chapitre **[10. Synchronisation multi-appareils](10-synchronisation.md)**.
 
@@ -90,7 +121,7 @@ Permet de retrouver les mêmes repas sur tous vos appareils. La procédure compl
 
 ---
 
-## 7.5 Apparence et lisibilité
+## 7.6 Apparence et lisibilité
 
 | Réglage | Options | Remarque |
 |---|---|---|
@@ -101,7 +132,7 @@ Ces deux réglages sont synchronisés entre vos appareils.
 
 ---
 
-## 7.6 Sécurité — la phrase secrète
+## 7.7 Sécurité — la phrase secrète
 
 **À définir sur le premier appareil, avant d'activer la synchronisation ou de partager un QR code.**
 
@@ -128,7 +159,7 @@ Le **mot de passe myDiabby** et la **clé API Anthropic** sont, eux, chiffrés a
 
 ---
 
-## 7.7 Partage de configuration par QR code
+## 7.8 Partage de configuration par QR code
 
 Pour éviter de ressaisir les adresses et jetons sur un deuxième appareil.
 
@@ -138,7 +169,7 @@ Pour éviter de ressaisir les adresses et jetons sur un deuxième appareil.
 
 Le QR contient **cinq informations** : l'adresse Nightscout, le jeton Nightscout, le jeton GitHub, l'identifiant du Gist et le sel de dérivation. Il ne contient **ni** vos identifiants myDiabby, **ni** votre clé Anthropic, **ni** vos données de repas.
 
-Le code est **chiffré par votre phrase secrète** (section 7.6) : l'appareil qui le scanne la demande une fois, puis applique la configuration. Une photo du code, sans la phrase, ne donne rien.
+Le code est **chiffré par votre phrase secrète** (section 7.7) : l'appareil qui le scanne la demande une fois, puis applique la configuration. Une photo du code, sans la phrase, ne donne rien.
 
 > ⚠️ **Tant qu'aucune phrase secrète n'est définie**, l'application refuse de générer un QR code et vous explique pourquoi.
 >
@@ -146,7 +177,7 @@ Le code est **chiffré par votre phrase secrète** (section 7.6) : l'appareil qu
 
 ---
 
-## 7.8 Sauvegarde et export
+## 7.9 Sauvegarde et export
 
 Cette section protège vos données contre la principale fragilité de l'application : **le stockage du navigateur**. Une donnée corrompue, un nettoyage automatique par iOS, un téléphone perdu — et tout ce qui n'a pas été sauvegardé ailleurs disparaît.
 
@@ -201,20 +232,21 @@ La **tendance** est écrite en toutes lettres — « hausse lente », « stable 
 
 ---
 
-## 7.9 Application
+## 7.10 Application
 
 - **Forcer la mise à jour** : vide le cache et recharge la dernière version publiée. Vos données ne sont pas touchées.
 - Sous le bouton figure le **numéro de version** installé, de la forme `202607261650-02ed11f`. Communiquez-le en cas de demande d'aide.
 
 ---
 
-## 7.10 Ce qui est synchronisé, ce qui ne l'est pas
+## 7.11 Ce qui est synchronisé, ce qui ne l'est pas
 
 | Réglage | Synchronisé entre appareils ? |
 |---|---|
 | Adresse Nightscout | **oui** |
 | Jeton Nightscout | **oui**, uniquement si la synchronisation est chiffrée |
 | Ratios, sensibilités, cibles par repas | **oui** |
+| Profil de pompe récupéré | **oui** |
 | Thème et taille du texte | **oui** |
 | Identifiant du Gist | **oui** |
 | Sel de dérivation | **oui** (en clair dans l'en-tête du Gist et dans le QR : ce n'est pas un secret) |
@@ -226,10 +258,10 @@ La **tendance** est écrite en toutes lettres — « hausse lente », « stable 
 
 ---
 
-## 7.11 Récapitulatif
+## 7.12 Récapitulatif
 
 - [ ] L'adresse et le jeton Nightscout sont saisis, et la courbe s'affiche.
-- [ ] Les ratios, sensibilités et cibles correspondent à l'ordonnance.
+- [ ] Le profil de pompe a été récupéré, ou les ratios, sensibilités et cibles correspondent à l'ordonnance.
 - [ ] La synchronisation est configurée si vous utilisez plusieurs appareils.
 - [ ] Une phrase secrète est définie et notée ailleurs que dans l'application.
 - [ ] Le thème et la taille du texte vous conviennent.

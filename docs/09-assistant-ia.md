@@ -57,7 +57,7 @@ Appuyez ensuite sur **Récupérer depuis myDiabby**. L'application se connecte, 
 
 Vous verrez ensuite :
 
-- **Profil de pompe** : toutes les plages avec basal, ratio, sensibilité, cible, et le basal quotidien total ;
+- **Profil de pompe** : toutes les plages avec basal, ratio, sensibilité, cible, et le basal quotidien total. Le bouton **Utiliser ce profil pour les repas** reporte ratio, sensibilité et cible sur les quatre repas, chacun prenant la plage qui contient son heure (voir [7.2](07-configuration.md#72-profil-de-pompe--remplir-les-repas-automatiquement)) ;
 - **Vérification — 48 dernières heures** : par créneau de 2 h, la glycémie médiane, le basal programmé face au basal reçu, les bolus, les glucides et le mode Control-IQ, suivis des derniers évènements bruts. Cette section sert à contrôler que la récupération est complète ;
 - **Synthèse locale** : les statistiques par plage horaire, avec la colonne **Δ Ctrl-IQ**.
 

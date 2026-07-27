@@ -2311,6 +2311,216 @@ function toggleFoodDeleteMode() {
 }
 
 // ============================================================
+// PROFIL DE POMPE
+// ============================================================
+// Les ratios, sensibilités et cibles vivent d'abord dans la pompe, découpés en
+// plages horaires. L'application, elle, raisonne par repas. On reporte donc
+// dans chaque repas les valeurs de la plage qui contient son heure : c'est
+// exactement ce que fait la pompe au moment du bolus.
+//
+// La saisie manuelle reste possible et prioritaire — la pompe peut avoir été
+// modifiée sans que myDiabby ait été synchronisé — et chaque repas indique
+// d'où viennent ses valeurs.
+// ============================================================
+
+// Réglages de pompe tels que myDiabby les expose, remis en forme
+function mdShapePumpSettings(node) {
+    if (!node || !node.carbRatios) return null;
+    return {
+        date: node.time || null,
+        activeSchedule: node.activeSchedule,
+        basal: node.basalSchedules,
+        carbRatios: node.carbRatios,
+        isf: node.insulinSensitivities,
+        targets: node.bgTargets,
+        model: node.model || null
+    };
+}
+
+// Cherche les réglages dans une réponse quelconque de myDiabby
+function mdExtractPumpSettings(raws) {
+    let found = null;
+    const noop = () => {};
+    const handlers = { cgm: noop, entry: noop, cl: noop, pump(node) { if (!found && node && node.carbRatios) found = node; } };
+    (Array.isArray(raws) ? raws : [raws]).filter(Boolean).forEach(r => mdHarvest(r, handlers));
+    return mdShapePumpSettings(found);
+}
+
+// Profil rangé dans les réglages : plages horaires et provenance.
+// `old` porte la valeur précédente d'un champ modifié lors de la dernière mise
+// à jour, pour que le tableau montre ce qui a bougé.
+function profileFromPumpSettings(ps, previous) {
+    const slots = asstBuildSlots(ps);
+    if (!slots.length) return null;
+    const prevSlots = (previous && previous.slots) || [];
+    const prevAt = ms => {
+        for (const s of prevSlots) if (ms >= s.start && ms < s.end) return s;
+        return null;
+    };
+    return {
+        name: ps.activeSchedule || '',
+        date: ps.date || null,
+        model: ps.model || null,
+        fetchedAt: new Date().toISOString(),
+        slots: slots.map(s => {
+            const before = prevAt(s.start);
+            const old = {};
+            if (before) {
+                ['basal', 'ratio', 'isf', 'target'].forEach(k => {
+                    if (before[k] != null && s[k] != null && before[k] !== s[k]) old[k] = before[k];
+                });
+            }
+            const out = { debut: s.debut, fin: s.fin, start: s.start, end: s.end,
+                basal: s.basal, ratio: s.ratio, isf: s.isf, target: s.target };
+            if (Object.keys(old).length) out.old = old;
+            return out;
+        })
+    };
+}
+
+function profileSlotAt(profile, ms) {
+    if (!profile || !profile.slots) return null;
+    for (const s of profile.slots) if (ms >= s.start && ms < s.end) return s;
+    return profile.slots[profile.slots.length - 1] || null;
+}
+
+// Valeurs qu'un repas tire du profil, à son heure habituelle
+function profileValuesForMeal(profile, meal) {
+    const slot = profileSlotAt(profile, asstHmToMs(meal.time));
+    if (!slot) return null;
+    return {
+        ratio: slot.ratio != null ? slot.ratio : null,
+        sensitivity: slot.isf != null ? slot.isf : null,
+        target: slot.target != null ? slot.target : null,
+        slot: slot
+    };
+}
+
+// Un repas suit-il le profil, ou a-t-il été forcé à la main ?
+function mealFollowsProfile(mealId) {
+    const profile = settings.pumpProfile;
+    const meal = MEALS.find(m => m.id === mealId);
+    if (!profile || !meal) return false;
+    const v = profileValuesForMeal(profile, meal);
+    const p = settings[mealId] || {};
+    if (!v) return false;
+    return ['ratio', 'sensitivity', 'target'].every(k => v[k] == null || Number(p[k]) === Number(v[k]));
+}
+
+// Reporte le profil sur les quatre repas. Renvoie la liste de ce qui change,
+// pour pouvoir le dire à l'utilisateur plutôt que de modifier en silence.
+function profileApplyToMeals(profile) {
+    const changes = [];
+    MEALS.forEach(m => {
+        const v = profileValuesForMeal(profile, m);
+        if (!v) return;
+        if (!settings[m.id]) settings[m.id] = {};
+        ['ratio', 'sensitivity', 'target'].forEach(k => {
+            if (v[k] == null) return;
+            const before = settings[m.id][k];
+            if (Number(before) !== Number(v[k])) {
+                changes.push({ meal: m.label, champ: k, avant: before, apres: v[k] });
+                settings[m.id][k] = v[k];
+            }
+        });
+    });
+    saveSettings();
+    return changes;
+}
+
+const PROFILE_FIELD_LABELS = { ratio: 'ratio', sensitivity: 'sensibilité', target: 'cible' };
+
+// Récupère le profil actif depuis myDiabby, puis l'applique
+async function profileUpdateFromMyDiabby() {
+    const cfg = mdGetCfg();
+    if (!cfg.user || !cfg.pass) throw new Error('Renseignez vos identifiants myDiabby plus haut, puis sauvegardez');
+    const token = await mdLogin(cfg.user, cfg.pass);
+    const raws = [];
+    for (const path of ['/api/account', '/api/pumpsettings/']) {
+        try { raws.push(await mdApiGet(token, path)); }
+        catch (e) { console.warn('Endpoint ' + path + ' indisponible :', e.message); }
+    }
+    if (!raws.length) throw new Error('myDiabby n\'a renvoyé aucune réponse');
+    const ps = mdExtractPumpSettings(raws);
+    if (!ps) throw new Error('Aucun réglage de pompe trouvé dans la réponse de myDiabby');
+    const profile = profileFromPumpSettings(ps, settings.pumpProfile);
+    if (!profile) throw new Error('Profil de pompe vide : aucune plage horaire');
+    settings.pumpProfile = profile;
+    saveSettings();
+    return { profile: profile, changes: profileApplyToMeals(profile) };
+}
+
+function profileNum(v) {
+    if (v == null) return '—';
+    return String(Math.round(v * 1000) / 1000).replace('.', ',');
+}
+
+// Tableau du profil, dans le format de la pompe. Une valeur modifiée lors de
+// la dernière mise à jour s'affiche avec l'ancienne barrée, à côté.
+function profileTableHtml(profile) {
+    if (!profile || !profile.slots || !profile.slots.length) return '';
+    const mealAt = {};
+    MEALS.forEach(m => {
+        const slot = profileSlotAt(profile, asstHmToMs(m.time));
+        if (slot) (mealAt[slot.start] = mealAt[slot.start] || []).push(m.icon);
+    });
+    const cell = (slot, key) => {
+        const v = profileNum(slot[key]);
+        if (slot.old && slot.old[key] != null) {
+            return '<td class="asst-cell-changed"><b>' + v + '</b> <s>' + profileNum(slot.old[key]) + '</s></td>';
+        }
+        return '<td>' + v + '</td>';
+    };
+    let html = '<div class="asst-table-wrap"><table class="asst-table pp-table"><thead><tr>'
+        + '<th>Plage</th><th>Basal U/h</th><th>Ratio g/U</th><th>Sensib.</th><th>Cible</th>'
+        + '</tr></thead><tbody>';
+    profile.slots.forEach(s => {
+        const icons = mealAt[s.start] ? ' ' + mealAt[s.start].join('') : '';
+        html += '<tr' + (icons ? ' class="pp-meal-row"' : '') + '>'
+            + '<td>' + asstEsc(s.debut) + '–' + asstEsc(s.fin) + icons + '</td>'
+            + cell(s, 'basal') + cell(s, 'ratio') + cell(s, 'isf') + cell(s, 'target') + '</tr>';
+    });
+    return html + '</tbody></table></div>';
+}
+
+// Bloc « Profil de pompe » des paramètres
+function renderPumpProfileCard() {
+    const el = $('#profile-block');
+    if (!el) return;
+    const profile = settings.pumpProfile;
+    let html = '';
+    if (!profile) {
+        html += '<p class="settings-hint">Aucun profil récupéré. Le bouton ci-dessus lit le profil actif '
+            + 'de la pompe sur myDiabby et reporte ratio, sensibilité et cible sur les quatre repas, '
+            + 'selon l\'heure de chacun.</p>';
+    } else {
+        const manual = MEALS.filter(m => !mealFollowsProfile(m.id));
+        html += '<p class="settings-hint">Profil <b>' + asstEsc(profile.name || 'actif') + '</b>'
+            + (profile.date ? ', réglages du ' + asstEsc(String(profile.date).slice(0, 10)) : '')
+            + ' — récupéré le ' + asstEsc(new Date(profile.fetchedAt).toLocaleString('fr-FR')) + '.</p>';
+        html += profileTableHtml(profile);
+        html += '<p class="settings-hint">Les icônes marquent la plage qui fournit les valeurs de chaque repas. '
+            + 'Une valeur modifiée lors de la dernière mise à jour est en orange, l\'ancienne barrée à côté.</p>';
+        if (manual.length) {
+            html += '<p class="settings-hint sec-warn">' + manual.map(m => m.label).join(', ')
+                + (manual.length > 1 ? ' ne suivent ' : ' ne suit ') + 'pas le profil : '
+                + 'valeurs forcées à la main plus bas.</p>'
+                + '<button type="button" id="btn-profile-reapply" class="btn btn-secondary">Réappliquer le profil</button>';
+        }
+    }
+    el.innerHTML = html;
+    const reapply = $('#btn-profile-reapply');
+    if (reapply) {
+        reapply.addEventListener('click', () => {
+            const changes = profileApplyToMeals(settings.pumpProfile);
+            renderSettings();
+            renderMeal();
+            toast(changes.length ? changes.length + ' valeur(s) rétablie(s) depuis le profil' : 'Déjà conforme au profil');
+        });
+    }
+}
+
+// ============================================================
 // SETTINGS
 // ============================================================
 function renderSettings() {
@@ -2318,24 +2528,32 @@ function renderSettings() {
     if (!container) return;
     container.innerHTML = MEALS.map(m => {
         const p = settings[m.id] || {};
+        // Les ratios de pompe ne sont pas entiers (11,5 g/U par exemple) :
+        // le pas doit suivre, sinon le navigateur refuse la valeur.
+        const badge = settings.pumpProfile
+            ? (mealFollowsProfile(m.id)
+                ? '<span class="meal-src meal-src-pump">profil pompe</span>'
+                : '<span class="meal-src meal-src-manual">forcé à la main</span>')
+            : '';
         return `<div class="settings-meal-block">
-            <h5>${m.icon} ${m.label}</h5>
+            <h5>${m.icon} ${m.label} <span class="meal-time">${m.time}</span>${badge}</h5>
             <div class="settings-meal-params">
                 <div class="input-group">
                     <label>Ratio</label>
-                    <input type="number" class="setting-ratio" data-meal="${m.id}" value="${p.ratio || m.defaultRatio}" inputmode="numeric" autocomplete="off">
+                    <input type="number" step="0.1" class="setting-ratio" data-meal="${m.id}" value="${p.ratio != null ? p.ratio : m.defaultRatio}" inputmode="decimal" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>Sensibilité</label>
-                    <input type="number" class="setting-sensitivity" data-meal="${m.id}" value="${p.sensitivity || m.defaultSensitivity}" inputmode="numeric" autocomplete="off">
+                    <input type="number" step="0.1" class="setting-sensitivity" data-meal="${m.id}" value="${p.sensitivity != null ? p.sensitivity : m.defaultSensitivity}" inputmode="decimal" autocomplete="off">
                 </div>
                 <div class="input-group">
                     <label>Cible</label>
-                    <input type="number" class="setting-target" data-meal="${m.id}" value="${p.target || m.defaultTarget}" inputmode="numeric" autocomplete="off">
+                    <input type="number" step="1" class="setting-target" data-meal="${m.id}" value="${p.target != null ? p.target : m.defaultTarget}" inputmode="numeric" autocomplete="off">
                 </div>
             </div>
         </div>`;
     }).join('');
+    renderPumpProfileCard();
 
     $('#settings-ns-url').value = settings.nightscoutUrl || '';
     $('#settings-ns-token').value = settings.nightscoutToken || '';
@@ -2385,9 +2603,11 @@ function saveSettingsFromUI() {
         const sensitivity = $(`.setting-sensitivity[data-meal="${m.id}"]`)?.value;
         const target = $(`.setting-target[data-meal="${m.id}"]`)?.value;
         if (!settings[m.id]) settings[m.id] = {};
-        settings[m.id].ratio = parseInt(ratio) || m.defaultRatio;
-        settings[m.id].sensitivity = parseInt(sensitivity) || m.defaultSensitivity;
-        settings[m.id].target = parseInt(target) || m.defaultTarget;
+        // parseFloat et non parseInt : un ratio de pompe vaut couramment 11,5 g/U,
+        // et tronquer à 11 fausserait chaque bolus de ce repas.
+        settings[m.id].ratio = parseFloat(ratio) || m.defaultRatio;
+        settings[m.id].sensitivity = parseFloat(sensitivity) || m.defaultSensitivity;
+        settings[m.id].target = parseFloat(target) || m.defaultTarget;
     });
     settings.nightscoutUrl = $('#settings-ns-url').value.trim();
     settings.nightscoutToken = $('#settings-ns-token').value.trim();
@@ -3517,6 +3737,42 @@ async function initApp() {
     setTimeout(() => checkForUpdate(true), 5000);
 
     // QR code buttons
+    // Mise à jour du profil depuis myDiabby
+    const profileBtn = $('#btn-profile-update');
+    if (profileBtn) {
+        profileBtn.addEventListener('click', async () => {
+            const statusEl = $('#profile-status');
+            profileBtn.disabled = true;
+            if (statusEl) statusEl.textContent = 'Connexion à myDiabby...';
+            try {
+                const res = await profileUpdateFromMyDiabby();
+                renderSettings();
+                renderMeal();
+                const st = $('#profile-status');
+                if (res.changes.length) {
+                    if (st) {
+                        st.innerHTML = '<span class="asst-ok">✓ Profil mis à jour</span> — '
+                            + res.changes.map(c => asstEsc(c.meal) + ' : ' + PROFILE_FIELD_LABELS[c.champ]
+                                + ' ' + profileNum(c.avant) + ' → <b>' + profileNum(c.apres) + '</b>').join(' · ');
+                    }
+                    toast(res.changes.length + ' paramètre(s) de repas mis à jour');
+                } else {
+                    if (st) st.innerHTML = '<span class="asst-ok">✓ Profil à jour</span> — '
+                        + 'les paramètres des repas correspondent déjà à la pompe.';
+                    toast('Paramètres déjà conformes au profil');
+                }
+            } catch (e) {
+                console.error('Mise à jour du profil :', e);
+                const st = $('#profile-status');
+                const msg = String(e.message || e);
+                if (st) st.innerHTML = '<span class="asst-warn">⚠ ' + asstEsc(msg) + '</span>';
+                toast('Mise à jour impossible');
+            } finally {
+                profileBtn.disabled = false;
+            }
+        });
+    }
+
     // Phrase secrète de synchronisation
     const passInput = $('#settings-sync-pass');
     const applyBtn = $('#btn-sync-pass-apply');
@@ -4170,16 +4426,7 @@ function mdBuildPayload(rawList, pumpRaw, windowDays) {
     out.forEach(d => d.cgm.sort((a, b) => a[0] - b[0]));
     out.sort((a, b) => a.date < b.date ? -1 : 1);
 
-    const psData = pumpFound && pumpFound.carbRatios ? pumpFound : null;
-    const pumpSettings = psData ? {
-        date: psData.time || null,
-        activeSchedule: psData.activeSchedule,
-        basal: psData.basalSchedules,
-        carbRatios: psData.carbRatios,
-        isf: psData.insulinSensitivities,
-        targets: psData.bgTargets,
-        model: psData.model || null
-    } : null;
+    const pumpSettings = mdShapePumpSettings(pumpFound);
 
     return {
         format: 'followdia-mydiabby-v1',
@@ -4857,8 +5104,27 @@ function renderAsstPumpProfile() {
     });
     html += '</tbody></table></div>';
     html += '<p class="asst-dim">' + slots.length + ' plages — basal quotidien du profil : '
-        + Math.round(total * 100) / 100 + ' U/24 h</p></div>';
+        + Math.round(total * 100) / 100 + ' U/24 h</p>';
+    // Le profil vient d'être récupéré : autant pouvoir le reporter sur les
+    // repas sans repasser par les paramètres ni refaire un appel à myDiabby.
+    html += '<button type="button" id="btn-asst-use-profile" class="btn btn-secondary">'
+        + 'Utiliser ce profil pour les repas</button></div>';
     el.innerHTML = html;
+
+    const useBtn = $('#btn-asst-use-profile');
+    if (useBtn) {
+        useBtn.addEventListener('click', () => {
+            const profile = profileFromPumpSettings(ps, settings.pumpProfile);
+            if (!profile) { toast('Profil vide : rien à appliquer'); return; }
+            settings.pumpProfile = profile;
+            const changes = profileApplyToMeals(profile);
+            renderSettings();
+            renderMeal();
+            toast(changes.length
+                ? changes.length + ' paramètre(s) de repas mis à jour'
+                : 'Paramètres déjà conformes au profil');
+        });
+    }
 }
 
 // Extrait des 48 dernières heures pour vérifier ce qui a été récupéré

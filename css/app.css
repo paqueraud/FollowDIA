@@ -1622,6 +1622,35 @@ canvas {
     cursor: pointer;
 }
 
+/* Profil de pompe dans les paramètres */
+.meal-time {
+    font-weight: 400;
+    font-size: calc(11px * var(--fs, 1));
+    color: var(--text-dim);
+    opacity: 0.75;
+    margin-left: 4px;
+}
+
+.meal-src {
+    float: right;
+    font-size: calc(10px * var(--fs, 1));
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+    border: 1px solid currentColor;
+}
+
+.meal-src-pump { color: var(--success); }
+.meal-src-manual { color: var(--warning); }
+
+/* La plage qui alimente un repas se repère d'un coup d'œil */
+.pp-table .pp-meal-row td {
+    background: rgba(67, 97, 238, 0.10);
+}
+
+#profile-block .asst-table-wrap { margin-bottom: 8px; }
+#profile-status { margin: 6px 0 8px; }
+
 /* État de la protection des données */
 .sec-line {
     font-size: calc(12px * var(--fs, 1));

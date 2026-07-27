@@ -144,7 +144,7 @@ Trois niveaux de protection, du plus immédiat au plus solide :
 
 Le Gist **est** votre sauvegarde principale : il vit sur les serveurs de GitHub, indépendamment de vos téléphones.
 
-Pour une copie de votre côté, le plus simple est **⚙ Paramètres → Sauvegarde et export → 💾 Exporter mes données (JSON)** : le fichier contient repas, aliments et réglages, sans vos identifiants (détail en [7.8](07-configuration.md#78-sauvegarde-et-export)). Rangez-le comme un mot de passe, il contient le jeton Nightscout.
+Pour une copie de votre côté, le plus simple est **⚙ Paramètres → Sauvegarde et export → 💾 Exporter mes données (JSON)** : le fichier contient repas, aliments et réglages, sans vos identifiants (détail en [7.9](07-configuration.md#79-sauvegarde-et-export)). Rangez-le comme un mot de passe, il contient le jeton Nightscout.
 
 Vous pouvez aussi récupérer directement le contenu du Gist :
 
