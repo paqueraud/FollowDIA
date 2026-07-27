@@ -14,24 +14,39 @@ Application de suivi de l'**insulinothérapie fonctionnelle** pour un enfant viv
 
 Aucun marquage CE, aucune certification, aucune validation clinique. Cet outil ne remplace ni votre lecteur de glycémie, ni votre pompe, ni l'avis de votre équipe de diabétologie. Vérifiez chaque calcul avant administration ; ne modifiez aucun réglage de pompe sans validation médicale.
 
-Application libre, **fournie gratuitement, en l'état, sans garantie d'aucune sorte**, à titre bénévole et non lucratif. Son utilisation vaut acceptation pleine et entière des conditions, et se fait **aux seuls risques et périls de l'utilisateur**.
+Application libre sous licence MIT, **fournie gratuitement, en l'état, sans garantie d'aucune sorte**, à titre bénévole et non lucratif. Son utilisation vaut acceptation pleine et entière des conditions, et se fait **aux seuls risques et périls de l'utilisateur**.
 
-### ➡️ **[LIRE LES CONDITIONS D'UTILISATION COMPLÈTES](docs/AVERTISSEMENT.md)**
+### ➡️ **[LIRE L'AVERTISSEMENT ET LES CONDITIONS D'UTILISATION](docs/AVERTISSEMENT.md)**
 
 ---
 
 ## 📖 Documentation
 
-**➡️ [Ouvrir la documentation complète](docs/README.md)** — installation pas à pas, configuration, utilisation, FAQ et dépannage.
+Toute la documentation est en français, dans le dossier [`docs/`](docs/). Si vous partez de zéro, suivez les chapitres **dans l'ordre** : chaque étape produit une information dont la suivante a besoin.
 
-| Pour… | Aller à |
-|---|---|
-| Comprendre comment tout s'articule | [Vue d'ensemble](docs/01-vue-ensemble.md) |
-| Installer de zéro | [Prérequis](docs/02-prerequis.md) → [Nightscout](docs/03-nightscout.md) → [xDrip+](docs/04-xdrip.md) → [Déploiement](docs/05-deploiement.md) |
-| Déployer votre propre instance | [Chapitre 5](docs/05-deploiement.md) |
-| Utiliser l'application au quotidien | [Chapitre 8](docs/08-utilisation.md) |
-| Réviser les réglages avec l'IA | [Chapitre 9](docs/09-assistant-ia.md) |
-| Résoudre un problème | [Dépannage](docs/13-depannage.md) · [FAQ](docs/12-faq.md) |
+| # | Chapitre | Contenu | Durée |
+|---|---|---|---|
+| ⚠️ | **[Avertissement et conditions d'utilisation](docs/AVERTISSEMENT.md)** | **à lire avant toute utilisation** | 5 min |
+| — | [Sommaire de la documentation](docs/README.md) | point d'entrée, aide-mémoire des informations à conserver | — |
+| 1 | [Vue d'ensemble](docs/01-vue-ensemble.md) | ce que fait l'application, schéma des flux, où vivent les données | 10 min |
+| 2 | [Prérequis et coûts](docs/02-prerequis.md) | comptes, matériel, budget, ordre d'installation | 10 min |
+| 3 | [Mettre en place Nightscout](docs/03-nightscout.md) | service hébergé ou auto-hébergé, jetons, vérification | 15 min |
+| 4 | [Installer et configurer xDrip+](docs/04-xdrip.md) | téléphone porteur, téléphones suiveurs, alarmes, batterie | 45 min |
+| 5 | [Déployer votre instance](docs/05-deploiement.md) | fork GitHub, GitHub Pages, mises à jour | 15 min |
+| 6 | [Installer l'application](docs/06-installation-app.md) | Android, iPhone, ordinateur, mode hors ligne | 2 min |
+| 7 | [Configurer l'application](docs/07-configuration.md) | tous les réglages, un par un | 15 min |
+| 8 | [Utiliser l'application](docs/08-utilisation.md) | chaque onglet, les formules de calcul, une journée type | — |
+| 9 | [Assistant IA](docs/09-assistant-ia.md) | données de pompe, coûts réels, lecture du rapport, PDF | — |
+| 10 | [Synchronisation multi-appareils](docs/10-synchronisation.md) | Gist privé, QR de configuration, sauvegarde | 10 min |
+| 11 | [Sécurité et données personnelles](docs/11-securite-donnees.md) | où vont les données, ce qui est protégé, RGPD | — |
+| 12 | [Questions fréquentes](docs/12-faq.md) | les réponses aux questions courantes | — |
+| 13 | [Dépannage](docs/13-depannage.md) | par symptôme : glycémies, sync, assistant, affichage | — |
+
+### Parcours express
+
+Déjà équipé de Nightscout et xDrip ? [Déployez votre instance](docs/05-deploiement.md) → [installez-la](docs/06-installation-app.md) → [saisissez l'adresse Nightscout](docs/07-configuration.md). C'est utilisable ; le reste peut attendre.
+
+---
 
 ## Fonctionnalités
 
@@ -40,7 +55,7 @@ Application libre, **fournie gratuitement, en l'état, sans garantie d'aucune so
 - **Suivi du réalisé** : pourcentage de bolus effectivement injecté, par repas et au global
 - **Glycémies du capteur** depuis Nightscout : courbe, dérivée, delta, sélection d'un point
 - **Statistiques cliniques** : temps dans la cible (ATTD 2019), HbA1c estimée (GMI), coefficient de variation
-- **Assistant IA** : analyse des données de pompe (myDiabby) et proposition argumentée de révision des plages, ratios et sensibilités, avec rapport PDF
+- **Assistant IA** : analyse des données de pompe (myDiabby) et proposition argumentée de révision des plages, ratios et sensibilités, avec rapport PDF généré localement
 - **Synchronisation multi-appareils** par Gist GitHub privé
 - **Fonctionne hors ligne**, installable comme une application native (PWA)
 
@@ -57,6 +72,7 @@ manifest.json                   déclaration PWA
 sw.js                           cache hors ligne
 version.json                    version publiée
 docs/                           documentation utilisateur
+LICENSE                         licence MIT + avertissement médical
 .github/workflows/deploy.yml    publication automatique sur GitHub Pages
 ```
 
@@ -75,6 +91,10 @@ Le détail figure au [chapitre 5](docs/05-deploiement.md).
 
 Aucun serveur central, aucun compte, aucune mesure d'audience. Les données restent dans votre navigateur, dans votre Gist privé et sur votre Nightscout. Voir [Sécurité et données personnelles](docs/11-securite-donnees.md).
 
+## Licence
+
+Distribué sous **[licence MIT](LICENSE)** — usage, modification et redistribution libres, **sans aucune garantie**. Le fichier de licence rappelle également que ce logiciel n'est pas un dispositif médical.
+
 ---
 
 > ## ⚠️ Rappel final
@@ -83,4 +103,4 @@ Aucun serveur central, aucun compte, aucune mesure d'audience. Les données rest
 > ### Vous êtes seul responsable de l'insuline administrée et des paramètres modifiés.
 > ### Vérifiez tout. Validez avec votre équipe de diabétologie. Utilisez à vos risques et périls.
 >
-> **[Conditions d'utilisation](docs/AVERTISSEMENT.md)**
+> **[Conditions d'utilisation](docs/AVERTISSEMENT.md)** · **[Licence MIT](LICENSE)**

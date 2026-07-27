@@ -12,7 +12,7 @@
 
 ## 1. Nature du logiciel
 
-FollowDIA est un **logiciel libre et gratuit**, développé et mis à disposition de la communauté à titre **bénévole, altruiste et non lucratif**. Aucune contrepartie financière n'est perçue, ni directement ni indirectement, en échange de sa mise à disposition ou de son utilisation.
+FollowDIA est un **logiciel libre et gratuit**, distribué sous **[licence MIT](../LICENSE)**, développé et mis à disposition de la communauté à titre **bénévole, altruiste et non lucratif**. Aucune contrepartie financière n'est perçue, ni directement ni indirectement, en échange de sa mise à disposition ou de son utilisation.
 
 **FollowDIA n'est pas un dispositif médical** au sens du règlement (UE) 2017/745. Il ne dispose d'**aucun marquage CE**, n'a fait l'objet d'**aucune certification**, d'**aucune évaluation clinique** ni d'**aucune validation** par une autorité de santé ou un organisme notifié. Il n'a été conçu ni développé selon les référentiels applicables aux logiciels de santé.
 
@@ -68,7 +68,7 @@ Nightscout et xDrip+ sont eux-mêmes des projets communautaires libres, **non ce
 
 ## 7. Absence de garantie
 
-L'application est fournie **« EN L'ÉTAT » (*AS IS*), SANS GARANTIE D'AUCUNE SORTE**, expresse ou implicite.
+L'application est fournie **« EN L'ÉTAT » (*AS IS*), SANS GARANTIE D'AUCUNE SORTE**, expresse ou implicite, conformément aux termes de la [licence MIT](../LICENSE) sous laquelle elle est distribuée.
 
 Le développeur ne garantit notamment pas :
 

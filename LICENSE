@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2026 paqueraud
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ADDITIONAL NOTICE — MEDICAL DISCLAIMER
+
+This software is NOT a medical device. It carries no CE marking and has
+undergone no certification, clinical evaluation or validation by any health
+authority. It is provided free of charge, on a voluntary and non-profit basis.
+
+Nothing displayed by this software constitutes medical advice, a diagnosis, a
+prescription or a therapeutic recommendation. The user is solely and entirely
+responsible for the administration of insulin and for any modification of
+insulin pump settings, and must have every calculation verified and every
+settings change validated by their diabetes care team before use.
+
+See docs/AVERTISSEMENT.md for the full terms of use (in French).

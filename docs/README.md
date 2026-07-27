@@ -103,3 +103,5 @@ Clé API Anthropic .......... ______________________________
 ---
 
 *Cette documentation décrit l'application telle qu'elle est réellement implémentée. Les valeurs chiffrées qui y figurent (seuils, intervalles, tarifs) sont celles du code.*
+
+*FollowDIA est distribué sous [licence MIT](../LICENSE), sans aucune garantie. Voir l'[avertissement et les conditions d'utilisation](AVERTISSEMENT.md).*
