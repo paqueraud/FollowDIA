@@ -4962,8 +4962,21 @@ document.addEventListener('DOMContentLoaded', initAssistant);
 // ============================================================
 const BACKUP_DB = 'followdia_backup';
 const BACKUP_STORE = 'snapshots';
-const BACKUP_KEEP = 8;              // nombre d'instantanés conservés
 const BACKUP_MIN_INTERVAL = 300000; // au plus un instantané toutes les 5 min
+
+// Rétention à trois paliers : la sauvegarde la plus récente, la dernière de la
+// veille et une sauvegarde ancienne d'environ une semaine. Trois fichiers
+// couvrent les trois cas de perte (erreur de saisie vue tout de suite,
+// corruption constatée le lendemain, dérive plus ancienne) sans laisser
+// l'historique s'accumuler sur l'appareil.
+//
+// Le troisième palier ne peut pas être daté d'exactement sept jours : pour
+// disposer chaque jour d'une copie de J-7, il faudrait conserver toutes les
+// copies journalières intermédiaires, donc huit fichiers au lieu de trois. On
+// garde donc la plus ancienne copie encore valide, qui vieillit jusqu'à
+// BACKUP_MAX_AGE_DAYS puis cède la place à la suivante : ce palier oscille
+// entre un et quatorze jours et vaut une semaine en moyenne.
+const BACKUP_MAX_AGE_DAYS = 14;
 
 // Clés jamais écrites dans un fichier qui quitte l'appareil
 const EXPORT_EXCLUDED_KEYS = ['followdia_mydiabby_cfg', 'followdia_assistant_cfg'];
@@ -5029,18 +5042,59 @@ function scheduleLocalBackup() {
     }, 8000);
 }
 
+// Minuit du jour de `ts`, éventuellement reculé de `offsetDays`.
+// On passe par setDate() plutôt que par une soustraction de millisecondes :
+// les jours de changement d'heure ne font pas 24 h.
+function backupDayStart(ts, offsetDays) {
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    if (offsetDays) d.setDate(d.getDate() - offsetDays);
+    return d.getTime();
+}
+
+// Horodatages à conserver, un par palier. Tout le reste est supprimé.
+function backupKeepSet(list, now) {
+    const sorted = (list || []).slice().sort((a, b) => b.ts - a.ts);
+    const ref = now == null ? Date.now() : now;
+    const keep = new Set();
+
+    // 1. La plus récente
+    if (sorted.length) keep.add(sorted[0].ts);
+
+    // 2. La dernière de la veille. À défaut — application non ouverte hier —
+    //    la plus récente d'avant aujourd'hui, pour ne pas laisser le créneau
+    //    vide : quelques jours sans saisie effaceraient sinon tout l'historique.
+    const veille = sorted.find(s => s.ts < backupDayStart(ref));
+    if (veille) keep.add(veille.ts);
+
+    // 3. La plus ancienne encore valide : elle vieillit d'un jour par jour
+    //    jusqu'à devenir la copie « d'il y a une semaine ». Passé la limite
+    //    d'âge, elle est supprimée et la copie de la veille prend le relais.
+    const floor = backupDayStart(ref, BACKUP_MAX_AGE_DAYS);
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].ts >= floor) { keep.add(sorted[i].ts); break; }
+    }
+    return keep;
+}
+
+// Supprime tout ce qui ne tient pas dans un palier
+async function purgeLocalBackups() {
+    const all = await backupTx('readonly', store => store.getAll());
+    const list = all || [];
+    const keep = backupKeepSet(list);
+    const drop = list.filter(s => !keep.has(s.ts));
+    if (drop.length) {
+        await backupTx('readwrite', store => { drop.forEach(s => store.delete(s.ts)); });
+    }
+    return drop.length;
+}
+
 async function saveLocalBackup() {
     const snap = backupCollect(true);
     snap.ts = Date.now();
     _lastBackupTs = snap.ts;
     await backupTx('readwrite', store => store.put(snap));
-    // Ne conserver que les N plus récents
-    const all = await backupTx('readonly', store => store.getAll());
-    const list = (all || []).sort((a, b) => b.ts - a.ts);
-    if (list.length > BACKUP_KEEP) {
-        const old = list.slice(BACKUP_KEEP);
-        await backupTx('readwrite', store => { old.forEach(s => store.delete(s.ts)); });
-    }
+    await purgeLocalBackups();
     return snap.ts;
 }
 
@@ -5245,14 +5299,19 @@ async function renderBackupList() {
         el.innerHTML = '<p class="settings-hint">Aucune sauvegarde automatique pour l\'instant : la première est créée peu après votre prochaine saisie.</p>';
         return;
     }
-    let html = '<p class="settings-hint">Sauvegardes automatiques sur cet appareil (' + list.length + ') :</p><div class="backup-items">';
+    let html = '<p class="settings-hint">Trois sauvegardes automatiques sont conservées sur cet appareil : '
+        + 'la plus récente, la dernière de la veille et une copie plus ancienne, d\'environ une semaine. '
+        + 'Toutes les autres sont supprimées automatiquement.</p><div class="backup-items">';
+    const today = backupDayStart(Date.now());
     list.forEach(s => {
         const d = new Date(s.ts);
         const nDays = (() => {
             try { return Object.keys(JSON.parse(s.keys.followdia_data || '{}')).length; } catch (e) { return '?'; }
         })();
+        const ago = Math.round((today - backupDayStart(s.ts)) / 86400000);
+        const when = ago <= 0 ? "aujourd'hui" : (ago === 1 ? 'hier' : 'il y a ' + ago + ' jours');
         html += '<div class="backup-item"><span>' + asstEsc(d.toLocaleString('fr-FR')) + '<br>'
-            + '<span class="asst-dim">' + nDays + ' jours de données</span></span>'
+            + '<span class="asst-dim">' + when + ' — ' + nDays + ' jours de données</span></span>'
             + '<button class="btn btn-secondary backup-restore" data-ts="' + s.ts + '">Restaurer</button></div>';
     });
     html += '</div>';
@@ -5275,6 +5334,13 @@ async function renderBackupList() {
 }
 
 function initBackup() {
+    // Purge au démarrage : les instantanés accumulés par les versions
+    // précédentes, ou pendant une longue période sans saisie, disparaissent
+    // sans attendre la prochaine sauvegarde.
+    purgeLocalBackups()
+        .then(n => { if (n) console.info(n + ' sauvegarde(s) ancienne(s) supprimée(s)'); })
+        .catch(e => console.warn('Purge des sauvegardes impossible :', e && e.message));
+
     const exportBtn = $('#btn-export-backup');
     if (exportBtn) exportBtn.addEventListener('click', exportBackupFile);
 

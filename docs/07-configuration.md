@@ -128,9 +128,21 @@ Cette section protège vos données contre la principale fragilité de l'applica
 
 ### Les sauvegardes automatiques
 
-L'application enregistre régulièrement un **instantané** de vos données dans un stockage **distinct** de celui utilisé au quotidien (IndexedDB). Un instantané est créé quelques secondes après une saisie, au maximum une fois toutes les 5 minutes ; **les 8 plus récents** sont conservés, les plus anciens supprimés.
+L'application enregistre régulièrement un **instantané** de vos données dans un stockage **distinct** de celui utilisé au quotidien (IndexedDB). Un instantané est créé quelques secondes après une saisie, au maximum une fois toutes les 5 minutes.
 
-Ces instantanés sont listés sous les boutons, avec leur date et le nombre de jours de données qu'ils contiennent, et un bouton **Restaurer** pour chacun. C'est le filet de sécurité en cas de données corrompues : si l'application affiche le bandeau rouge d'erreur, celui-ci propose directement **Restaurer la dernière sauvegarde**.
+**Seules trois sauvegardes sont conservées**, toutes les autres sont supprimées automatiquement pour ne pas encombrer l'appareil :
+
+| Sauvegarde conservée | À quoi elle sert |
+|---|---|
+| **la plus récente** | revenir sur une erreur de saisie repérée tout de suite |
+| **la dernière de la veille** | rattraper une corruption constatée le lendemain |
+| **une copie plus ancienne, d'environ une semaine** | remonter avant une dérive passée inaperçue |
+
+> **Pourquoi « environ » une semaine ?** Pour disposer chaque jour d'une copie datée d'exactement sept jours, il faudrait garder toutes les copies journalières intermédiaires, soit huit fichiers au lieu de trois. L'application conserve donc la plus ancienne copie encore valide : elle vieillit jour après jour, et une fois passés quatorze jours elle cède la place à la suivante. Ce troisième créneau contient donc une copie âgée d'un à quatorze jours, d'une semaine en moyenne. La purge s'exécute au démarrage de l'application et après chaque nouvelle sauvegarde.
+
+Ces instantanés sont listés sous les boutons, avec leur date, leur ancienneté (« aujourd'hui », « hier », « il y a 9 jours ») et le nombre de jours de données qu'ils contiennent, avec un bouton **Restaurer** pour chacun. C'est le filet de sécurité en cas de données corrompues : si l'application affiche le bandeau rouge d'erreur, celui-ci propose directement **Restaurer la dernière sauvegarde**.
+
+> Trois copies locales ne remplacent pas un export : elles disparaissent toutes avec l'appareil. Faites un **export JSON** de temps en temps et rangez-le ailleurs.
 
 > Ces instantanés vivent **sur l'appareil**. Ils ne protègent pas d'une perte du téléphone : pour cela, utilisez l'export JSON et/ou la [synchronisation](10-synchronisation.md).
 

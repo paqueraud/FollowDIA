@@ -57,7 +57,7 @@ Déjà équipé de Nightscout et xDrip ? [Déployez votre instance](docs/05-depl
 - **Statistiques cliniques** : temps dans la cible (ATTD 2019), HbA1c estimée (GMI), coefficient de variation
 - **Assistant IA** : analyse des données de pompe (myDiabby) et proposition argumentée de révision des plages, ratios et sensibilités, avec rapport PDF généré localement
 - **Synchronisation multi-appareils** par Gist GitHub privé
-- **Sauvegardes locales automatiques** (stockage distinct, 8 instantanés) plus export JSON et export CSV des repas
+- **Sauvegardes locales automatiques** (stockage distinct ; la plus récente, celle de la veille et une copie d'environ une semaine) plus export JSON et export CSV des repas
 - **Fonctionne hors ligne**, installable comme une application native (PWA)
 
 ## Architecture

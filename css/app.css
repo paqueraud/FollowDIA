@@ -16,6 +16,12 @@
     --danger-light: #ff6b6b;
     --border: #2a2a40;
     --border-light: #3a3a55;
+    /* Boutons secondaires : sur fond sombre, un simple aplat un peu plus clair
+       reste invisible. Le contour porte le contraste (≈ 4,5:1 avec le fond des
+       cartes et de la fenêtre de paramètres), l'aplat n'apporte qu'un relief. */
+    --btn-surface: #303348;
+    --btn-surface-active: #3f4463;
+    --btn-border: #7a82a8;
     --radius: 12px;
     --radius-sm: 8px;
     --shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -48,6 +54,9 @@
     --danger-light: #a61b0c;
     --border: #9aa0b0;
     --border-light: #6f7688;
+    --btn-surface: #eef1f6;
+    --btn-surface-active: #dde3ee;
+    --btn-border: #545b6b;
     --shadow: 0 4px 20px rgba(0,0,0,0.15);
     --glucose-low: #c02717;
     --glucose-ok: #157a3a;
@@ -135,11 +144,14 @@ input, select, button, textarea {
     font-weight: 500;
 }
 
-input[type="text"], input[type="number"], input[type="url"], select {
+/* email et password : les identifiants myDiabby, sans quoi le navigateur
+   affiche un champ blanc par défaut au milieu du thème sombre */
+input[type="text"], input[type="number"], input[type="url"],
+input[type="email"], input[type="password"], select {
     width: 100%;
     padding: 12px 14px;
     background: var(--bg-input);
-    border: 1px solid var(--border);
+    border: 1px solid var(--btn-border);
     border-radius: var(--radius-sm);
     color: var(--text);
     font-size: calc(15px * var(--fs, 1));
@@ -175,10 +187,12 @@ input[type="number"] {
 .btn-primary:active { background: var(--accent-light); }
 
 .btn-secondary {
-    background: var(--bg-card-alt);
+    background: var(--btn-surface);
     color: var(--text);
-    border: 1px solid var(--border);
+    border: 1px solid var(--btn-border);
 }
+
+.btn-secondary:active { background: var(--btn-surface-active); }
 
 .btn-danger {
     background: var(--danger);
@@ -1397,6 +1411,7 @@ canvas {
     justify-content: space-between;
     gap: 10px;
     background: var(--bg-card-alt);
+    border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
     padding: 8px 10px;
     font-size: calc(12px * var(--fs, 1));
