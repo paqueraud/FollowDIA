@@ -72,7 +72,8 @@ manifest.json                   déclaration PWA
 sw.js                           cache hors ligne
 version.json                    version publiée
 docs/                           documentation utilisateur
-LICENSE                         licence MIT + avertissement médical
+LICENSE                         licence MIT
+NOTICE                          avertissement médical (FR / EN)
 .github/workflows/deploy.yml    publication automatique sur GitHub Pages
 ```
 
@@ -93,7 +94,9 @@ Aucun serveur central, aucun compte, aucune mesure d'audience. Les données rest
 
 ## Licence
 
-Distribué sous **[licence MIT](LICENSE)** — usage, modification et redistribution libres, **sans aucune garantie**. Le fichier de licence rappelle également que ce logiciel n'est pas un dispositif médical.
+Distribué sous **[licence MIT](LICENSE)** — usage, modification et redistribution libres, **sans aucune garantie**.
+
+Le fichier **[NOTICE](NOTICE)** accompagne la licence et rappelle, en français et en anglais, que ce logiciel n'est pas un dispositif médical et que l'utilisateur est seul responsable de l'administration de l'insuline et des réglages de sa pompe.
 
 ---
 

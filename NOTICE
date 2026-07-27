@@ -1,0 +1,69 @@
+FollowDIA — MEDICAL NOTICE / AVERTISSEMENT MÉDICAL
+==================================================
+
+This notice accompanies, and does not modify, the MIT License under which
+this software is distributed (see LICENSE).
+
+Ce document accompagne la licence MIT sous laquelle ce logiciel est
+distribué (voir LICENSE) ; il ne la modifie pas.
+
+
+ENGLISH
+-------
+
+FollowDIA is NOT a medical device. It carries no CE marking and has
+undergone no certification, clinical evaluation or validation by any
+health authority. It is provided free of charge, on a voluntary and
+non-profit basis, AS IS and WITHOUT WARRANTY OF ANY KIND.
+
+Nothing displayed by this software constitutes medical advice, a
+diagnosis, a prescription or a therapeutic recommendation.
+
+The user is solely and entirely responsible for:
+  - the administration of insulin (decision, dose, timing, route);
+  - any modification of insulin pump settings (carbohydrate ratios,
+    insulin sensitivity factors, glucose targets, basal rates,
+    time blocks);
+  - verifying every calculation before acting on it;
+  - having every settings change validated by their diabetes care team.
+
+Recommendations produced by artificial intelligence are decision support
+only. They may be wrong, incomplete or unsuited to the clinical context,
+and must never be applied without prior medical validation.
+
+To the fullest extent permitted by applicable law, the authors and
+copyright holders shall not be liable for any damage of any kind arising
+from the use of, or the inability to use, this software.
+
+
+FRANÇAIS
+--------
+
+FollowDIA N'EST PAS un dispositif médical. Il ne dispose d'aucun marquage
+CE et n'a fait l'objet d'aucune certification, évaluation clinique ni
+validation par une autorité de santé. Il est fourni gratuitement, à titre
+bénévole et non lucratif, EN L'ÉTAT et SANS GARANTIE D'AUCUNE SORTE.
+
+Aucun élément affiché ne constitue un avis médical, un diagnostic, une
+prescription ni une recommandation thérapeutique.
+
+L'utilisateur est seul et pleinement responsable :
+  - de l'administration de l'insuline (décision, dose, moment, voie) ;
+  - de toute modification des paramètres de la pompe (ratios glucidiques,
+    sensibilités, cibles glycémiques, débits de basal, plages horaires) ;
+  - de la vérification de tout calcul avant toute mise en pratique ;
+  - de la validation de tout changement de réglage par son équipe de
+    diabétologie.
+
+Les recommandations produites par intelligence artificielle constituent
+une simple aide à la décision. Elles peuvent être erronées, incomplètes
+ou inadaptées au contexte clinique, et ne doivent jamais être appliquées
+sans validation médicale préalable.
+
+Dans toute la mesure permise par le droit applicable, les auteurs et
+titulaires des droits ne pourront être tenus responsables d'aucun dommage
+de quelque nature que ce soit résultant de l'utilisation, ou de
+l'impossibilité d'utiliser, ce logiciel.
+
+
+Conditions d'utilisation complètes : docs/AVERTISSEMENT.md
