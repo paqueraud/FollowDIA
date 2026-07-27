@@ -1,0 +1,141 @@
+# 7. Configurer l'application
+
+**Objectif de ce chapitre :** relier l'application à vos services et l'adapter à votre enfant. Tous les réglages sont dans **⚙ Paramètres**, en haut à droite.
+
+**Temps nécessaire :** 15 minutes.
+
+> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.8). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
+>
+> **Pensez à appuyer sur « Sauvegarder »** en bas de la fenêtre : rien n'est enregistré tant que vous ne l'avez pas fait.
+
+---
+
+## 7.1 Nightscout / xDrip
+
+C'est le réglage **indispensable** : sans lui, aucune glycémie ne s'affiche.
+
+| Champ | Ce qu'il faut saisir |
+|---|---|
+| **URL Nightscout** | l'adresse complète de votre serveur, par exemple `https://prenom-suivi.10be.de` |
+| **Token API** | le jeton de **lecture** créé au chapitre 3 (par exemple `followdia-a1b2c3d4e5f6a7b8`) |
+
+Précisions :
+
+- Saisissez l'adresse **avec** `https://` et **sans** barre oblique finale (l'application la supprime de toute façon).
+- Ne mettez **pas** votre API secret administrateur ici : un jeton de lecture suffit et se révoque individuellement.
+- Si votre Nightscout autorise la lecture anonyme, le jeton peut rester vide — mais ce n'est pas recommandé.
+
+### Vérifier
+
+Ouvrez l'onglet **Glycémie**. Au bout de quelques secondes, la glycémie du moment et la courbe doivent apparaître, avec un message du type « 864 glycémies récupérées ».
+
+Si un message d'erreur s'affiche, allez au [chapitre 13, section « La glycémie ne s'affiche pas »](13-depannage.md).
+
+### Ce que l'application demande à Nightscout
+
+Pour information (utile en cas de diagnostic) :
+
+- au démarrage et à l'ouverture de l'onglet Glycémie : les **3 derniers jours**, au maximum 864 mesures ;
+- à l'ouverture de l'onglet Synthèse : les **30 derniers jours**, au maximum 9000 mesures, avec une mise en cache de 5 minutes ;
+- le jeton est transmis dans l'adresse, en paramètre `token=`.
+
+---
+
+## 7.2 Paramètres par repas
+
+C'est le cœur du calcul. Chacun des quatre repas a ses propres valeurs.
+
+| Réglage | Signification | Valeur par défaut |
+|---|---|---|
+| **Ratio** (g/U) | nombre de grammes de glucides couverts par 1 unité d'insuline | Petit-déj 12 · Déjeuner 22 · Goûter 20 · Dîner 26 |
+| **Sensibilité** (mg/dl/U) | baisse de glycémie attendue pour 1 unité | 150 pour les quatre repas |
+| **Cible** (mg/dl) | glycémie visée pour le calcul de correction | 150 pour les quatre repas |
+
+> **Ces valeurs doivent être celles indiquées par votre diabétologue.** Les valeurs par défaut sont un point de départ, pas une recommandation. Reportez les valeurs figurant dans les réglages de votre pompe.
+
+Les repas sont proposés automatiquement selon l'heure : Petit-déjeuner de 4 h à 11 h, Déjeuner de 11 h à 15 h, Goûter de 15 h à 17 h 30, Dîner ensuite. Vous pouvez toujours changer d'onglet manuellement.
+
+---
+
+## 7.3 myDiabby (données de la pompe)
+
+Nécessaire **uniquement** pour l'onglet Assistant. Ignorez cette section si vous ne l'utilisez pas.
+
+| Champ | Ce qu'il faut saisir |
+|---|---|
+| **Email myDiabby** | l'adresse de connexion à votre compte myDiabby |
+| **Mot de passe myDiabby** | le mot de passe correspondant |
+
+> **Ces identifiants restent sur cet appareil.** Ils sont enregistrés dans une zone séparée et ne partent **jamais** dans le Gist de synchronisation. Il faut donc les saisir sur chaque appareil où vous voulez utiliser l'assistant.
+
+⚠️ **Attention aux tentatives répétées** : myDiabby bloque temporairement le compte (environ 15 minutes) après plusieurs échecs de connexion. Si le mot de passe est refusé, vérifiez-le sur le site de myDiabby plutôt que de réessayer en boucle.
+
+---
+
+## 7.4 Synchronisation GitHub
+
+Permet de retrouver les mêmes repas sur tous vos appareils. La procédure complète, avec la création du jeton, est décrite au chapitre **[10. Synchronisation multi-appareils](10-synchronisation.md)**.
+
+| Champ | Ce qu'il faut saisir |
+|---|---|
+| **Token GitHub** | un jeton personnel avec la portée `gist` (commence généralement par `ghp_`) |
+| **Gist ID** | **laissez vide la première fois** : l'application crée le Gist et remplit le champ automatiquement. Sur les appareils suivants, recopiez l'identifiant obtenu. |
+
+---
+
+## 7.5 Apparence et lisibilité
+
+| Réglage | Options | Remarque |
+|---|---|---|
+| **Thème** | 🌙 Sombre (par défaut) · ☀️ Clair (plein soleil) | le thème clair est à contraste élevé, prévu pour l'extérieur |
+| **Taille du texte** | Petit · Moyen · Grand · Très grand | agit sur toute l'application, y compris les graphiques |
+
+Ces deux réglages sont synchronisés entre vos appareils.
+
+---
+
+## 7.6 Partage de configuration par QR code
+
+Pour éviter de ressaisir les adresses et jetons sur un deuxième appareil.
+
+- **Générer QRCode** : affiche un QR code contenant votre configuration.
+- **Scanner QRCode** : ouvre la caméra pour lire le code affiché sur l'autre appareil.
+- **QRCode depuis image** : lit un QR code à partir d'une capture d'écran, pratique quand les deux appareils ne sont pas côte à côte.
+
+Le QR contient **exactement quatre informations** : l'adresse Nightscout, le jeton Nightscout, le jeton GitHub et l'identifiant du Gist. Il ne contient **ni** vos identifiants myDiabby, **ni** votre clé Anthropic, **ni** vos données de repas.
+
+> ⚠️ **Ce QR code donne accès à vos données.** Son contenu est chiffré, mais avec une clé incluse dans le code public de l'application : considérez-le comme un mot de passe à peine masqué. Ne le publiez jamais, ne l'envoyez pas par un canal non sécurisé, et supprimez la capture d'écran après usage.
+
+---
+
+## 7.7 Application
+
+- **Forcer la mise à jour** : vide le cache et recharge la dernière version publiée. Vos données ne sont pas touchées.
+- Sous le bouton figure le **numéro de version** installé, de la forme `202607261650-02ed11f`. Communiquez-le en cas de demande d'aide.
+
+---
+
+## 7.8 Ce qui est synchronisé, ce qui ne l'est pas
+
+| Réglage | Synchronisé entre appareils ? |
+|---|---|
+| Adresse et jeton Nightscout | **oui** |
+| Ratios, sensibilités, cibles par repas | **oui** |
+| Thème et taille du texte | **oui** |
+| Identifiant du Gist | **oui** |
+| Jeton GitHub | **non** — à saisir sur chaque appareil |
+| Identifiants myDiabby | **non** — à saisir sur chaque appareil |
+| Clé API Anthropic, solde, période d'analyse | **non** |
+| Données de pompe importées et rapports d'analyse | **non** |
+
+---
+
+## 7.9 Récapitulatif
+
+- [ ] L'adresse et le jeton Nightscout sont saisis, et la courbe s'affiche.
+- [ ] Les ratios, sensibilités et cibles correspondent à l'ordonnance.
+- [ ] La synchronisation est configurée si vous utilisez plusieurs appareils.
+- [ ] Le thème et la taille du texte vous conviennent.
+- [ ] Vous avez appuyé sur **Sauvegarder**.
+
+➡️ Chapitre suivant : **[8. Utiliser l'application au quotidien](08-utilisation.md)**
