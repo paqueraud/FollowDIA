@@ -11,7 +11,7 @@
 
 **Temps nécessaire :** 15 minutes.
 
-> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.9). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
+> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.10). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
 >
 > **Pensez à appuyer sur « Sauvegarder »** en bas de la fenêtre : rien n'est enregistré tant que vous ne l'avez pas fait.
 
@@ -101,7 +101,34 @@ Ces deux réglages sont synchronisés entre vos appareils.
 
 ---
 
-## 7.6 Partage de configuration par QR code
+## 7.6 Sécurité — la phrase secrète
+
+**À définir sur le premier appareil, avant d'activer la synchronisation ou de partager un QR code.**
+
+| Champ | Ce qu'il faut saisir |
+|---|---|
+| **Phrase secrète de synchronisation** | une phrase d'au moins 8 caractères, que vous seul connaissez |
+
+Ce qu'elle fait :
+
+- elle **chiffre le contenu du Gist** — GitHub héberge alors un fichier dont il ne peut rien lire ;
+- elle **chiffre le QR code** — une photo du code ne sert à rien sans la phrase.
+
+Ce qu'il faut savoir :
+
+- **Elle n'est enregistrée nulle part.** Notez-la ailleurs : personne ne peut vous la redonner, et sans elle les données chiffrées sont définitivement illisibles.
+- **Saisissez la même sur chaque appareil.** Un appareil qui ne l'a pas refuse de synchroniser plutôt que d'écraser les données des autres.
+- Sur un appareil qui rejoint le groupe, la phrase n'est demandée **qu'une fois** : la clé qui en découle reste ensuite dans un coffre local.
+
+Le bloc **Sécurité** affiche en permanence l'état réel de la protection : ce qui est chiffré, ce qui ne l'est pas.
+
+> **Tant qu'aucune phrase n'est définie**, l'application n'écrit plus le jeton Nightscout dans le Gist et refuse de générer un QR code. Le reste continue de fonctionner normalement.
+
+Le **mot de passe myDiabby** et la **clé API Anthropic** sont, eux, chiffrés automatiquement sur l'appareil, sans réglage à faire — voir le [chapitre 11](11-securite-donnees.md).
+
+---
+
+## 7.7 Partage de configuration par QR code
 
 Pour éviter de ressaisir les adresses et jetons sur un deuxième appareil.
 
@@ -109,13 +136,17 @@ Pour éviter de ressaisir les adresses et jetons sur un deuxième appareil.
 - **Scanner QRCode** : ouvre la caméra pour lire le code affiché sur l'autre appareil.
 - **QRCode depuis image** : lit un QR code à partir d'une capture d'écran, pratique quand les deux appareils ne sont pas côte à côte.
 
-Le QR contient **exactement quatre informations** : l'adresse Nightscout, le jeton Nightscout, le jeton GitHub et l'identifiant du Gist. Il ne contient **ni** vos identifiants myDiabby, **ni** votre clé Anthropic, **ni** vos données de repas.
+Le QR contient **cinq informations** : l'adresse Nightscout, le jeton Nightscout, le jeton GitHub, l'identifiant du Gist et le sel de dérivation. Il ne contient **ni** vos identifiants myDiabby, **ni** votre clé Anthropic, **ni** vos données de repas.
 
-> ⚠️ **Ce QR code donne accès à vos données.** Son contenu est chiffré, mais avec une clé incluse dans le code public de l'application : considérez-le comme un mot de passe à peine masqué. Ne le publiez jamais, ne l'envoyez pas par un canal non sécurisé, et supprimez la capture d'écran après usage.
+Le code est **chiffré par votre phrase secrète** (section 7.6) : l'appareil qui le scanne la demande une fois, puis applique la configuration. Une photo du code, sans la phrase, ne donne rien.
+
+> ⚠️ **Tant qu'aucune phrase secrète n'est définie**, l'application refuse de générer un QR code et vous explique pourquoi.
+>
+> ⚠️ **Les QR codes générés avant juillet 2026** étaient chiffrés avec une clé présente dans le code public : considérez-les comme lisibles par tous. L'application les lit encore, en vous avertissant. Détruisez-les et régénérez-en un.
 
 ---
 
-## 7.7 Sauvegarde et export
+## 7.8 Sauvegarde et export
 
 Cette section protège vos données contre la principale fragilité de l'application : **le stockage du navigateur**. Une donnée corrompue, un nettoyage automatique par iOS, un téléphone perdu — et tout ce qui n'a pas été sauvegardé ailleurs disparaît.
 
@@ -170,33 +201,37 @@ La **tendance** est écrite en toutes lettres — « hausse lente », « stable 
 
 ---
 
-## 7.8 Application
+## 7.9 Application
 
 - **Forcer la mise à jour** : vide le cache et recharge la dernière version publiée. Vos données ne sont pas touchées.
 - Sous le bouton figure le **numéro de version** installé, de la forme `202607261650-02ed11f`. Communiquez-le en cas de demande d'aide.
 
 ---
 
-## 7.9 Ce qui est synchronisé, ce qui ne l'est pas
+## 7.10 Ce qui est synchronisé, ce qui ne l'est pas
 
 | Réglage | Synchronisé entre appareils ? |
 |---|---|
-| Adresse et jeton Nightscout | **oui** |
+| Adresse Nightscout | **oui** |
+| Jeton Nightscout | **oui**, uniquement si la synchronisation est chiffrée |
 | Ratios, sensibilités, cibles par repas | **oui** |
 | Thème et taille du texte | **oui** |
 | Identifiant du Gist | **oui** |
+| Sel de dérivation | **oui** (en clair dans l'en-tête du Gist et dans le QR : ce n'est pas un secret) |
 | Jeton GitHub | **non** — à saisir sur chaque appareil |
+| Phrase secrète | **non** — à saisir sur chaque appareil, jamais enregistrée |
 | Identifiants myDiabby | **non** — à saisir sur chaque appareil |
 | Clé API Anthropic, solde, période d'analyse | **non** |
 | Données de pompe importées et rapports d'analyse | **non** |
 
 ---
 
-## 7.10 Récapitulatif
+## 7.11 Récapitulatif
 
 - [ ] L'adresse et le jeton Nightscout sont saisis, et la courbe s'affiche.
 - [ ] Les ratios, sensibilités et cibles correspondent à l'ordonnance.
 - [ ] La synchronisation est configurée si vous utilisez plusieurs appareils.
+- [ ] Une phrase secrète est définie et notée ailleurs que dans l'application.
 - [ ] Le thème et la taille du texte vous conviennent.
 - [ ] Vous avez appuyé sur **Sauvegarder**.
 

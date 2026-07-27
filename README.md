@@ -92,7 +92,16 @@ Le détail figure au [chapitre 5](docs/05-deploiement.md).
 
 ## Vie privée
 
-Aucun serveur central, aucun compte, aucune mesure d'audience. Les données restent dans votre navigateur, dans votre Gist privé et sur votre Nightscout. Voir [Sécurité et données personnelles](docs/11-securite-donnees.md).
+Aucun serveur central, aucun compte, aucune mesure d'audience. Les données restent dans votre navigateur, dans votre Gist privé et sur votre Nightscout.
+
+**Ce dépôt ne contient aucune donnée personnelle** : ni nom, ni adresse de serveur, ni identifiant, ni jeton. Tout cela est saisi par l'utilisateur, dans les paramètres, sur son appareil.
+
+Chiffrement en place :
+
+- **Gist de synchronisation et QR code** : AES-GCM 256, avec une clé dérivée de votre phrase secrète (PBKDF2-SHA256, 210 000 itérations). GitHub héberge un contenu qu'il ne peut pas lire ; la phrase n'est enregistrée nulle part.
+- **Mot de passe myDiabby et clé API Anthropic** : chiffrés sur l'appareil par une clé non exportable, hors de portée d'une copie du stockage du navigateur.
+
+Le détail — y compris ce qui n'est **pas** protégé — figure au chapitre [Sécurité et données personnelles](docs/11-securite-donnees.md).
 
 ## Licence
 

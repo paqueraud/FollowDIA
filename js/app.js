@@ -2349,6 +2349,34 @@ function renderSettings() {
     if (mdPassEl) mdPassEl.value = mdCfg.pass || '';
     updateThemeButtons();
     updateFontSizeButtons();
+    renderSecurityStatus();
+}
+
+// État de la protection, dit sans enjoliver : l'utilisateur doit savoir
+// exactement ce qui est chiffré et ce qui ne l'est pas.
+function renderSecurityStatus() {
+    const el = $('#security-status');
+    if (!el) return;
+    const lines = [];
+    if (syncKeyReady()) {
+        lines.push(['ok', 'Gist et QR code chiffrés par votre phrase secrète. '
+            + 'GitHub ne voit que du chiffré.']);
+    } else if (settings.ghToken) {
+        lines.push(['warn', 'Aucune phrase secrète : le contenu du Gist reste lisible par GitHub '
+            + 'et par toute personne qui en obtient l\'adresse. Le jeton Nightscout n\'y est donc plus écrit, '
+            + 'et le QR code ne peut pas être généré.']);
+    } else {
+        lines.push(['warn', 'Aucune phrase secrète : définissez-en une avant d\'activer la '
+            + 'synchronisation ou de partager un QR code.']);
+    }
+    lines.push(secVaultReady
+        ? ['ok', 'Mot de passe myDiabby et clé API Anthropic chiffrés sur cet appareil.']
+        : ['warn', 'Coffre indisponible sur cet appareil : le mot de passe myDiabby et la clé API '
+            + 'restent enregistrés en clair.']);
+    lines.push(['info', 'Ces protections ne remplacent pas le verrouillage de l\'appareil : '
+        + 'qui peut ouvrir l\'application peut lire les données.']);
+    el.innerHTML = lines.map(([kind, text]) =>
+        '<p class="sec-line sec-' + kind + '">' + asstEsc(text) + '</p>').join('');
 }
 
 function saveSettingsFromUI() {
@@ -2380,13 +2408,372 @@ function saveSettingsFromUI() {
 // GITHUB GIST SYNC
 // ============================================================
 // ============================================================
+// SECRETS ET CHIFFREMENT
+// ============================================================
+// Deux protections, contre deux menaces différentes :
+//
+// 1. Le coffre de l'appareil — une clé AES-GCM 256 générée sur place, marquée
+//    NON EXPORTABLE et rangée dans IndexedDB. Le navigateur ne laisse aucun
+//    script en lire la matière : elle sert à chiffrer, jamais à être copiée.
+//    Elle protège les secrets qui n'ont aucune raison de quitter l'appareil —
+//    mot de passe myDiabby et clé API Anthropic — pour qu'une copie du
+//    stockage du navigateur ne les livre plus en clair.
+//
+// 2. La phrase secrète de synchronisation — jamais enregistrée nulle part.
+//    Elle dérive (PBKDF2-SHA256) la clé qui chiffre le contenu du Gist et du
+//    QR code. GitHub, ou quiconque obtient l'adresse du Gist ou photographie
+//    le QR code, ne voit plus que du chiffré. La clé dérivée est rangée dans
+//    le coffre pour que la synchronisation reste automatique : la phrase n'est
+//    redemandée que sur un nouvel appareil.
+//
+// Ce que cela ne protège pas, et il faut le dire : un code exécuté dans
+// l'application elle-même peut se servir des clés du coffre. Aucun navigateur
+// n'offre mieux à une application web. Le verrouillage de l'appareil reste la
+// première protection.
+// ============================================================
+const VAULT_DB = 'followdia_vault';
+const VAULT_STORE = 'keys';
+const VAULT_DEVICE = 'device';
+const VAULT_SYNC = 'sync';
+const SEC_PREFIX = 'enc1:';                                  // marque une valeur chiffrée
+const SYNC_KDF = { iterations: 210000, hash: 'SHA-256' };    // OWASP 2023 pour PBKDF2-SHA256
+const SYNC_FORMAT = 'followdia-enc-v1';
+
+// Base64 par tranches : String.fromCharCode(...tableau) dépasse la pile
+// d'appels dès quelques dizaines de milliers d'octets, et une charge de
+// synchronisation en fait facilement plusieurs centaines de milliers.
+function secB64(bytes) {
+    let s = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(s);
+}
+
+function secBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+function secAvailable() {
+    return typeof crypto !== 'undefined' && crypto.subtle && typeof indexedDB !== 'undefined';
+}
+
+function vaultOpen() {
+    return new Promise((resolve, reject) => {
+        if (!secAvailable()) { reject(new Error('Chiffrement indisponible')); return; }
+        const req = indexedDB.open(VAULT_DB, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE, { keyPath: 'id' });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('Coffre inaccessible'));
+    });
+}
+
+function vaultTx(mode, fn) {
+    return vaultOpen().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(VAULT_STORE, mode);
+        let req;
+        try { req = fn(tx.objectStore(VAULT_STORE)); } catch (e) { reject(e); return; }
+        tx.oncomplete = () => { db.close(); resolve(req ? req.result : undefined); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    }));
+}
+
+async function vaultRead(id) {
+    const rec = await vaultTx('readonly', store => store.get(id));
+    return rec ? rec.key : null;
+}
+
+function vaultWrite(id, key) { return vaultTx('readwrite', store => store.put({ id: id, key: key })); }
+function vaultRemove(id) { return vaultTx('readwrite', store => store.delete(id)); }
+
+// Clé de l'appareil : créée à la première utilisation, jamais exportable
+let _deviceKeyPromise = null;
+function deviceKey() {
+    if (!_deviceKeyPromise) {
+        _deviceKeyPromise = (async () => {
+            const existing = await vaultRead(VAULT_DEVICE);
+            if (existing) return existing;
+            const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+            await vaultWrite(VAULT_DEVICE, key);
+            return key;
+        })().catch(e => {
+            console.warn('Coffre indisponible, les secrets restent en clair :', e && e.message);
+            return null;
+        });
+    }
+    return _deviceKeyPromise;
+}
+
+function secIsSealed(v) { return typeof v === 'string' && v.indexOf(SEC_PREFIX) === 0; }
+
+async function secSeal(key, text) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key,
+        new TextEncoder().encode(String(text))));
+    const all = new Uint8Array(iv.length + ct.length);
+    all.set(iv);
+    all.set(ct, iv.length);
+    return SEC_PREFIX + secB64(all);
+}
+
+async function secOpen(key, blob) {
+    const all = secBytes(String(blob).slice(SEC_PREFIX.length));
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.slice(0, 12) }, key, all.slice(12));
+    return new TextDecoder().decode(plain);
+}
+
+// Secrets déchiffrés, gardés en mémoire le temps de la session pour que le
+// reste de l'application continue de les lire sans attendre.
+const _secrets = { mdPass: '', apiKey: '' };
+let secVaultReady = false;
+
+// Lit un secret rangé dans localStorage. Une valeur héritée d'une version
+// précédente, encore en clair, est chiffrée au passage.
+async function secLoadField(storeKey, field, cacheField) {
+    let obj = null;
+    try { obj = JSON.parse(localStorage.getItem(storeKey)); } catch (e) { obj = null; }
+    if (!obj || typeof obj !== 'object') return;
+    const v = obj[field];
+    if (!v) return;
+    const key = await deviceKey();
+    if (secIsSealed(v)) {
+        if (!key) return;
+        try { _secrets[cacheField] = await secOpen(key, v); }
+        catch (e) { console.warn('Secret illisible (' + storeKey + ') : coffre changé ?'); }
+        return;
+    }
+    _secrets[cacheField] = v;
+    if (!key) return;
+    try {
+        obj[field] = await secSeal(key, v);
+        localStorage.setItem(storeKey, JSON.stringify(obj));
+    } catch (e) { console.warn('Chiffrement de ' + storeKey + ' impossible :', e && e.message); }
+}
+
+// Écrit une configuration en chiffrant son champ secret. La partie publique
+// part tout de suite ; l'ancienne valeur chiffrée est conservée jusqu'à ce que
+// la nouvelle soit prête, pour qu'une fermeture au mauvais moment ne perde rien.
+async function secWriteField(storeKey, publicPart, field, value) {
+    let previous = null;
+    try {
+        const old = JSON.parse(localStorage.getItem(storeKey));
+        if (old && typeof old === 'object') previous = old[field];
+    } catch (e) { /* rien à conserver */ }
+    const obj = Object.assign({}, publicPart);
+    if (previous) obj[field] = previous;
+    localStorage.setItem(storeKey, JSON.stringify(obj));
+    if (!value) {
+        delete obj[field];
+        localStorage.setItem(storeKey, JSON.stringify(obj));
+        return;
+    }
+    const key = await deviceKey();
+    if (key) {
+        try { obj[field] = await secSeal(key, value); }
+        catch (e) { obj[field] = value; }
+    } else {
+        obj[field] = value;   // coffre indisponible : mieux vaut en clair que perdu
+    }
+    localStorage.setItem(storeKey, JSON.stringify(obj));
+}
+
+// ------------------------------------------------------------
+// Phrase secrète de synchronisation
+// ------------------------------------------------------------
+let _syncKey = null;
+
+function syncKeyReady() { return !!_syncKey; }
+
+async function syncDeriveKey(passphrase, saltB64) {
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase),
+        'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: secBytes(saltB64), iterations: SYNC_KDF.iterations, hash: SYNC_KDF.hash },
+        material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+// Le sel n'est pas un secret, mais il doit être le même sur tous les appareils :
+// il voyage en clair dans l'en-tête du Gist et dans le QR code.
+function syncSaltOrNew() {
+    if (!settings.syncSalt) {
+        settings.syncSalt = secB64(crypto.getRandomValues(new Uint8Array(16)));
+        saveSettings();
+    }
+    return settings.syncSalt;
+}
+
+// Dérive la clé sans rien enregistrer : l'appelant vérifie d'abord qu'elle
+// ouvre bien les données existantes.
+async function syncPrepareKey(passphrase, saltB64) {
+    if (!secAvailable()) throw new Error('Chiffrement indisponible sur cet appareil');
+    if (!passphrase || passphrase.length < 8) throw new Error('Phrase secrète : 8 caractères minimum');
+    // Le sel du Gist fait autorité pour le groupe d'appareils : un appareil qui
+    // aurait déjà tiré le sien au hasard ne déchiffrerait jamais les données
+    // existantes, et resterait bloqué à chaque tentative.
+    const salt = saltB64 || (await syncRemoteSalt()) || settings.syncSalt || syncSaltOrNew();
+    return { key: await syncDeriveKey(passphrase, salt), salt: salt };
+}
+
+async function syncUseKey(key, salt) {
+    await vaultWrite(VAULT_SYNC, key);
+    _syncKey = key;
+    settings.syncSalt = salt;
+    saveSettings();
+    return key;
+}
+
+async function syncSetPassphrase(passphrase, saltB64) {
+    const prepared = await syncPrepareKey(passphrase, saltB64);
+    return syncUseKey(prepared.key, prepared.salt);
+}
+
+// Ce que dit le Gist avec la clé actuellement en place :
+// 'none' introuvable ou injoignable · 'ok' lisible · 'locked' chiffré autrement
+async function syncProbeRemote() {
+    if (!settings.ghToken || !settings.gistId) return 'none';
+    let content = null;
+    try {
+        const resp = await fetch('https://api.github.com/gists/' + settings.gistId, {
+            headers: { 'Authorization': 'token ' + settings.ghToken }
+        });
+        if (!resp.ok) return 'none';
+        const gist = await resp.json();
+        content = gist.files && gist.files['followdia_data.json'] && gist.files['followdia_data.json'].content;
+    } catch (e) { return 'none'; }
+    if (!content) return 'none';
+    try { await syncOpenPayload(content); return 'ok'; }
+    catch (e) { return e && e.locked ? 'locked' : 'none'; }
+}
+
+// Réécriture délibérée du Gist, sans fusion préalable : sert au changement de
+// phrase secrète, seul cas où le contenu distant est volontairement remplacé.
+async function syncPushOverwrite() {
+    if (!settings.ghToken || !settings.gistId) return;
+    const body = await syncSealPayload(buildSyncPayload());
+    const resp = await fetch('https://api.github.com/gists/' + settings.gistId, {
+        method: 'PATCH',
+        headers: { 'Authorization': 'token ' + settings.ghToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { 'followdia_data.json': { content: body } } })
+    });
+    if (!resp.ok) throw new Error('Réécriture du Gist impossible (HTTP ' + resp.status + ')');
+}
+
+async function syncForgetPassphrase() {
+    try { await vaultRemove(VAULT_SYNC); } catch (e) { /* déjà absente */ }
+    _syncKey = null;
+}
+
+// Sel annoncé par le Gist, s'il est déjà chiffré
+async function syncRemoteSalt() {
+    if (!settings.ghToken || !settings.gistId) return null;
+    try {
+        const resp = await fetch('https://api.github.com/gists/' + settings.gistId, {
+            headers: { 'Authorization': 'token ' + settings.ghToken }
+        });
+        if (!resp.ok) return null;
+        const gist = await resp.json();
+        const content = gist.files && gist.files['followdia_data.json'] && gist.files['followdia_data.json'].content;
+        if (!content) return null;
+        const parsed = JSON.parse(content);
+        return (parsed && parsed.format === SYNC_FORMAT && parsed.kdf) ? parsed.kdf.salt : null;
+    } catch (e) { return null; }
+}
+
+// Charge de synchronisation : chiffrée si une phrase secrète est en place,
+// en clair sinon — pour ne pas casser une installation existante.
+async function syncSealPayload(obj) {
+    if (!_syncKey) {
+        // Sans phrase secrète on continue d'écrire en clair — pour ne pas
+        // rompre une installation existante — mais plus aucun secret n'y va.
+        // Le jeton Nightscout se transmet alors par QR code ou à la main.
+        const safe = Object.assign({}, obj);
+        if (safe.settings) {
+            safe.settings = Object.assign({}, safe.settings);
+            delete safe.settings.nightscoutToken;
+        }
+        return JSON.stringify(safe);
+    }
+    const json = JSON.stringify(obj);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, _syncKey,
+        new TextEncoder().encode(json)));
+    return JSON.stringify({
+        format: SYNC_FORMAT,
+        kdf: { salt: settings.syncSalt, iterations: SYNC_KDF.iterations, hash: SYNC_KDF.hash },
+        iv: secB64(iv),
+        ct: secB64(ct),
+        lastSync: obj.lastSync || new Date().toISOString()
+    });
+}
+
+// Renvoie la charge en clair. Lève une erreur marquée « locked » si le contenu
+// est chiffré et que cet appareil n'a pas la clé : l'appelant doit alors
+// s'arrêter, surtout pas écraser le Gist.
+async function syncOpenPayload(text) {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { throw new Error('Contenu du Gist illisible'); }
+    if (!parsed || parsed.format !== SYNC_FORMAT) return parsed;
+    if (!_syncKey) {
+        const err = new Error('SYNC_LOCKED');
+        err.locked = true;
+        err.salt = parsed.kdf && parsed.kdf.salt;
+        throw err;
+    }
+    let plain;
+    try {
+        plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secBytes(parsed.iv) }, _syncKey, secBytes(parsed.ct));
+    } catch (e) {
+        const err = new Error('SYNC_BAD_KEY');
+        err.locked = true;
+        throw err;
+    }
+    return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// Appelé au démarrage, avant toute synchronisation
+async function secretsInit() {
+    if (!secAvailable()) {
+        secVaultReady = false;
+        await secLoadPlainFallback();
+        return;
+    }
+    const key = await deviceKey();
+    secVaultReady = !!key;
+    await secLoadField(MD_CFG_KEY, 'pass', 'mdPass');
+    await secLoadField(ASST_CFG_KEY, 'apiKey', 'apiKey');
+    try { _syncKey = await vaultRead(VAULT_SYNC); } catch (e) { _syncKey = null; }
+}
+
+// Sans coffre (contexte non sécurisé, mode privé), on lit au moins les valeurs
+// telles qu'elles sont pour que l'application continue de fonctionner.
+async function secLoadPlainFallback() {
+    [[MD_CFG_KEY, 'pass', 'mdPass'], [ASST_CFG_KEY, 'apiKey', 'apiKey']].forEach(([k, f, c]) => {
+        try {
+            const o = JSON.parse(localStorage.getItem(k));
+            if (o && typeof o === 'object' && o[f] && !secIsSealed(o[f])) _secrets[c] = o[f];
+        } catch (e) { /* illisible */ }
+    });
+}
+
+// ============================================================
 // QR CODE CONFIG SHARING
 // ============================================================
-const _QR_KEY = 'F0ll0wD1A_2024_QR';
+// Ancien format « FDIA: », chiffré avec une clé écrite dans le code public :
+// c'était de l'obfuscation, pas une protection. Conservé en lecture seule pour
+// les QR codes déjà imprimés ou enregistrés ; les nouveaux codes utilisent le
+// format « FDIA2: », chiffré par la phrase secrète.
+const _QR_LEGACY_KEY = 'F0ll0wD1A_2024_QR';
 
 async function _qrDeriveKey() {
     const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(_QR_KEY), 'PBKDF2', false, ['deriveKey']);
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(_QR_LEGACY_KEY), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey(
         { name: 'PBKDF2', salt: enc.encode('followdia_qr_salt'), iterations: 100000, hash: 'SHA-256' },
         keyMaterial,
@@ -2396,26 +2783,46 @@ async function _qrDeriveKey() {
     );
 }
 
-async function qrEncryptConfig() {
-    const config = {
+function qrConfigToShare() {
+    return {
         nightscoutUrl: settings.nightscoutUrl || '',
         nightscoutToken: settings.nightscoutToken || '',
         ghToken: settings.ghToken || '',
-        gistId: settings.gistId || ''
+        gistId: settings.gistId || '',
+        syncSalt: settings.syncSalt || ''
     };
-    const key = await _qrDeriveKey();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(JSON.stringify(config));
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-    // Combine iv + ciphertext, encode as base64
-    const combined = new Uint8Array(iv.length + encrypted.byteLength);
-    combined.set(iv);
-    combined.set(new Uint8Array(encrypted), iv.length);
-    return btoa(String.fromCharCode(...combined));
 }
 
+// Format protégé : « FDIA2: » + base64(sel 16 o ‖ iv 12 o ‖ chiffré).
+// Le sel voyage en clair — il n'est pas secret — pour que l'appareil qui scanne
+// puisse dériver la même clé à partir de la phrase secrète.
+async function qrEncryptConfigV2() {
+    const salt = secBytes(syncSaltOrNew());
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, _syncKey,
+        new TextEncoder().encode(JSON.stringify(qrConfigToShare()))));
+    const all = new Uint8Array(salt.length + iv.length + ct.length);
+    all.set(salt);
+    all.set(iv, salt.length);
+    all.set(ct, salt.length + iv.length);
+    return 'FDIA2:' + secB64(all);
+}
+
+// Renvoie { salt, iv, ct } sans déchiffrer : le sel sert à dériver la clé
+function qrSplitV2(b64) {
+    const all = secBytes(b64);
+    return { salt: secB64(all.slice(0, 16)), iv: all.slice(16, 28), ct: all.slice(28) };
+}
+
+async function qrDecryptV2(b64, key) {
+    const p = qrSplitV2(b64);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: p.iv }, key, p.ct);
+    return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// Ancien format, clé publique : lecture seule
 async function qrDecryptConfig(b64) {
-    const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const combined = secBytes(b64);
     const iv = combined.slice(0, 12);
     const ciphertext = combined.slice(12);
     const key = await _qrDeriveKey();
@@ -2428,6 +2835,9 @@ async function qrApplyConfig(config) {
     if (config.nightscoutToken) { settings.nightscoutToken = config.nightscoutToken; $('#settings-ns-token').value = config.nightscoutToken; }
     if (config.ghToken) { settings.ghToken = config.ghToken; $('#settings-gh-token').value = config.ghToken; }
     if (config.gistId) { settings.gistId = config.gistId; $('#settings-gist-id').value = config.gistId; }
+    // Le sel doit suivre, sinon cet appareil en créerait un autre et ne
+    // déchiffrerait jamais le Gist du groupe.
+    if (config.syncSalt) settings.syncSalt = config.syncSalt;
     saveSettings();
     toast('Configuration importée avec succès');
 }
@@ -2438,6 +2848,10 @@ function qrShowModal(title) {
     $('#qr-display').innerHTML = '';
     $('#qr-scanner-container').classList.add('hidden');
     $('#qr-message').textContent = '';
+    const warn = $('#qr-warning');
+    if (warn) { warn.textContent = ''; warn.classList.add('hidden'); }
+    const unlock = $('#qr-unlock');
+    if (unlock) unlock.classList.add('hidden');
     modal.classList.remove('hidden');
 }
 
@@ -2454,8 +2868,16 @@ async function qrGenerate() {
     qrShowModal('QR Code de configuration');
     $('#qr-message').textContent = 'Génération...';
     try {
-        const encrypted = await qrEncryptConfig();
-        const payload = 'FDIA:' + encrypted;
+        if (!syncKeyReady()) {
+            // Sans phrase secrète, il n'y a rien à opposer à qui photographie
+            // le code : autant le dire au lieu de laisser croire à une protection.
+            qrSetWarning('Ce QR code n\'est pas protégé : toute personne qui le photographie '
+                + 'peut lire votre adresse et votre jeton Nightscout. Définissez une phrase secrète '
+                + 'dans Paramètres → Sécurité pour le chiffrer.');
+            $('#qr-message').textContent = '';
+            return;
+        }
+        const payload = await qrEncryptConfigV2();
         const qr = qrcode(0, 'M');
         qr.addData(payload);
         qr.make();
@@ -2483,7 +2905,8 @@ async function qrGenerate() {
             }
         }
         container.appendChild(cvs);
-        $('#qr-message').textContent = 'Scannez ce QR code depuis l\'autre appareil';
+        $('#qr-message').textContent = 'Scannez ce QR code depuis l\'autre appareil, '
+            + 'puis saisissez-y la même phrase secrète.';
     } catch (e) {
         console.error('QR generate error:', e);
         $('#qr-message').textContent = 'Erreur : ' + e.message;
@@ -2548,7 +2971,7 @@ async function qrScan() {
                     $('#qr-message').textContent = `Scan en cours... (${video.videoWidth}x${video.videoHeight}) Pointez vers le QR code`;
                 }
                 if (code) {
-                    if (code.data.startsWith('FDIA:')) {
+                    if (code.data.startsWith('FDIA2:') || code.data.startsWith('FDIA:')) {
                         qrStopScanner();
                         qrProcessPayload(code.data);
                         return;
@@ -2592,7 +3015,7 @@ async function qrProcessImageFile(file) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const code = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
         if (code) {
-            if (code.data.startsWith('FDIA:')) {
+            if (code.data.startsWith('FDIA2:') || code.data.startsWith('FDIA:')) {
                 await qrProcessPayload(code.data);
             } else {
                 $('#qr-message').textContent = 'QR code trouvé mais ce n\'est pas un code FollowDIA';
@@ -2606,16 +3029,77 @@ async function qrProcessImageFile(file) {
     }
 }
 
+// Reconnaît les deux formats : « FDIA2: » protégé par la phrase secrète, et
+// l'ancien « FDIA: » que l'on accepte encore en lecture, avec un avertissement.
 async function qrProcessPayload(data) {
     try {
-        const b64 = data.substring(5); // Remove 'FDIA:' prefix
-        const config = await qrDecryptConfig(b64);
+        if (data.indexOf('FDIA2:') === 0) {
+            const b64 = data.substring(6);
+            const salt = qrSplitV2(b64).salt;
+            let key = _syncKey;
+            if (key) {
+                // Une clé déjà en place ne convient que si le code vient du
+                // même groupe d'appareils, donc du même sel.
+                try { await qrDecryptV2(b64, key); } catch (e) { key = settings.syncSalt === salt ? key : null; }
+            }
+            if (!key) { qrAskPassphrase(b64, salt); return; }
+            await qrApplyConfig(await qrDecryptV2(b64, key));
+            qrHideModal();
+            return;
+        }
+        const config = await qrDecryptConfig(data.substring(5));
         await qrApplyConfig(config);
-        qrHideModal();
+        qrSetWarning('Ce QR code utilise l\'ancien format, chiffré avec une clé publiée dans le code '
+            + 'de l\'application : considérez-le comme lisible par tous et détruisez-le. '
+            + 'Régénérez-en un après avoir défini une phrase secrète.');
+        setTimeout(qrHideModal, 6000);
     } catch (e) {
         console.error('QR decrypt error:', e);
         $('#qr-message').textContent = 'QR code invalide ou non reconnu';
     }
+}
+
+function qrSetWarning(text) {
+    const el = $('#qr-warning');
+    if (!el) { toast(text); return; }
+    el.textContent = text;
+    el.classList.remove('hidden');
+}
+
+// Saisie de la phrase secrète, dans la fenêtre plutôt que par une boîte de
+// dialogue du navigateur : un mot de passe ne s'affiche pas en clair.
+function qrAskPassphrase(b64, salt) {
+    qrStopScanner();
+    $('#qr-scanner-container').classList.add('hidden');
+    $('#qr-message').textContent = 'Ce QR code est chiffré. Saisissez la phrase secrète de synchronisation.';
+    const box = $('#qr-unlock');
+    const input = $('#qr-unlock-pass');
+    if (!box || !input) return;
+    box.classList.remove('hidden');
+    input.value = '';
+    input.focus();
+    const submit = async () => {
+        const pass = input.value;
+        if (!pass) return;
+        $('#qr-message').textContent = 'Déchiffrement...';
+        try {
+            const key = await syncDeriveKey(pass, salt);
+            const config = await qrDecryptV2(b64, key);
+            await vaultWrite(VAULT_SYNC, key);
+            _syncKey = key;
+            settings.syncSalt = salt;
+            await qrApplyConfig(config);
+            renderSecurityStatus();
+            box.classList.add('hidden');
+            qrHideModal();
+        } catch (e) {
+            $('#qr-message').textContent = 'Phrase secrète incorrecte.';
+            input.value = '';
+            input.focus();
+        }
+    };
+    $('#qr-unlock-ok').onclick = submit;
+    input.onkeydown = e => { if (e.key === 'Enter') submit(); };
 }
 
 // ============================================================
@@ -2642,13 +3126,14 @@ async function syncToGist() {
                 const gist = await pullResp.json();
                 const content = gist.files['followdia_data.json']?.content;
                 if (content) {
-                    const remote = JSON.parse(content);
-                    // Merge remote into local (remote wins if more recent)
-                    if (remote.data) {
-                        mergeRemoteData(remote.data);
+                    // Un contenu chiffré illisible interrompt tout : pousser ici
+                    // écraserait les données des autres appareils par les nôtres.
+                    const remote = await syncOpenPayload(content);
+                    if (remote) {
+                        if (remote.data) mergeRemoteData(remote.data);
+                        await mergeCustomFoods(remote.customFoods);
+                        await mergeDeletedFoods(remote.deletedFoods);
                     }
-                    await mergeCustomFoods(remote.customFoods);
-                    await mergeDeletedFoods(remote.deletedFoods);
                 }
             }
 
@@ -2657,7 +3142,7 @@ async function syncToGist() {
             const resp = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ files: { 'followdia_data.json': { content: JSON.stringify(payload) } } })
+                body: JSON.stringify({ files: { 'followdia_data.json': { content: await syncSealPayload(payload) } } })
             });
             if (!resp.ok) throw new Error(`Push failed: ${resp.status}`);
         } else {
@@ -2669,7 +3154,7 @@ async function syncToGist() {
                 body: JSON.stringify({
                     description: 'FollowDIA - Données de suivi diabète',
                     public: false,
-                    files: { 'followdia_data.json': { content: JSON.stringify(payload) } }
+                    files: { 'followdia_data.json': { content: await syncSealPayload(payload) } }
                 })
             });
             if (!resp.ok) throw new Error(`Create failed: ${resp.status}`);
@@ -2680,11 +3165,24 @@ async function syncToGist() {
         }
         updateSyncIcon('ok');
     } catch(e) {
-        console.error('Sync push error:', e);
+        if (e && e.locked) syncReportLocked(false);
+        else console.error('Sync push error:', e);
         updateSyncIcon('error');
     } finally {
         _syncInProgress = false;
     }
+}
+
+// Le Gist est chiffré et cet appareil n'a pas la bonne clé. On ne touche à
+// rien : ni écriture, ni fusion. L'utilisateur doit saisir la phrase secrète.
+let _syncLockedNotified = false;
+function syncReportLocked(showToast) {
+    if (showToast || !_syncLockedNotified) {
+        toast('Synchronisation chiffrée : saisissez la phrase secrète dans Paramètres → Sécurité');
+        _syncLockedNotified = true;
+    }
+    console.warn('Synchronisation verrouillée : phrase secrète absente ou incorrecte');
+    renderSecurityStatus();
 }
 
 function buildSyncPayload() {
@@ -2794,7 +3292,8 @@ async function syncFromGist(showToast) {
         const gist = await resp.json();
         const content = gist.files['followdia_data.json']?.content;
         if (!content) throw new Error('No data file in gist');
-        const payload = JSON.parse(content);
+        const payload = await syncOpenPayload(content);
+        if (!payload) throw new Error('Charge de synchronisation vide');
 
         let changed = false;
 
@@ -2842,7 +3341,7 @@ async function syncFromGist(showToast) {
             const pushResp = await fetch(`https://api.github.com/gists/${gistId}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ files: { 'followdia_data.json': { content: JSON.stringify(pushPayload) } } })
+                body: JSON.stringify({ files: { 'followdia_data.json': { content: await syncSealPayload(pushPayload) } } })
             });
             if (!pushResp.ok) console.warn('Push-back after merge failed:', pushResp.status);
         }
@@ -2850,6 +3349,7 @@ async function syncFromGist(showToast) {
         updateSyncIcon('ok');
         if (showToast) toast(changed ? 'Données synchronisées' : 'Déjà à jour');
     } catch(e) {
+        if (e && e.locked) { syncReportLocked(showToast); updateSyncIcon('error'); return; }
         console.error('Sync pull error:', e);
         updateSyncIcon('error');
         if (showToast) toast('Erreur de synchronisation');
@@ -2927,6 +3427,9 @@ async function initApp() {
     registerServiceWorker();
     loadState();
     loadSettings();
+    // Avant toute synchronisation : sans les clés, un appareil pousserait des
+    // données en clair sur un Gist chiffré.
+    await secretsInit();
     applyTheme(settings.theme || 'dark');
     applyFontSize(settings.fontSize || 'petit');
     await loadFoods();
@@ -3014,6 +3517,63 @@ async function initApp() {
     setTimeout(() => checkForUpdate(true), 5000);
 
     // QR code buttons
+    // Phrase secrète de synchronisation
+    const passInput = $('#settings-sync-pass');
+    const applyBtn = $('#btn-sync-pass-apply');
+    if (applyBtn && passInput) {
+        applyBtn.addEventListener('click', async () => {
+            const pass = passInput.value;
+            const previous = _syncKey;
+            applyBtn.disabled = true;
+            try {
+                const prepared = await syncPrepareKey(pass);
+                _syncKey = prepared.key;                 // à l'essai, pas encore dans le coffre
+                let overwrite = false;
+                if (await syncProbeRemote() === 'locked') {
+                    // Deux explications possibles : phrase erronée, ou changement
+                    // volontaire de phrase. On ne devine pas — on demande.
+                    _syncKey = previous;
+                    const openedBefore = previous ? await syncProbeRemote() : 'none';
+                    _syncKey = prepared.key;
+                    overwrite = openedBefore === 'ok' && confirm(
+                        'Les données synchronisées sont chiffrées avec la phrase précédente, '
+                        + 'que cet appareil connaît encore.\n\nLes réécrire avec la nouvelle phrase ? '
+                        + 'Les autres appareils devront la saisir à leur tour.');
+                    if (!overwrite) {
+                        _syncKey = previous;
+                        toast('Phrase secrète incorrecte : les données existantes ne s\'ouvrent pas');
+                        return;
+                    }
+                }
+                await syncUseKey(prepared.key, prepared.salt);
+                passInput.value = '';
+                renderSecurityStatus();
+                // Le Gist passe en chiffré maintenant, sans attendre la prochaine saisie
+                if (settings.ghToken) {
+                    if (overwrite) await syncPushOverwrite();
+                    else await syncToGist();
+                }
+                toast(overwrite ? 'Phrase secrète changée' : 'Chiffrement activé');
+            } catch (e) {
+                _syncKey = previous;
+                toast(e.message || 'Impossible d\'activer le chiffrement');
+            } finally {
+                applyBtn.disabled = false;
+            }
+        });
+    }
+    const forgetBtn = $('#btn-sync-pass-forget');
+    if (forgetBtn) {
+        forgetBtn.addEventListener('click', async () => {
+            if (!confirm('Oublier la phrase secrète sur cet appareil ?\n\n'
+                + 'La synchronisation et les QR codes chiffrés resteront illisibles ici '
+                + 'tant que vous ne l\'aurez pas ressaisie. Les autres appareils ne sont pas touchés.')) return;
+            await syncForgetPassphrase();
+            toast('Phrase secrète oubliée sur cet appareil');
+            renderSecurityStatus();
+        });
+    }
+
     $('#btn-qr-generate').addEventListener('click', qrGenerate);
     $('#btn-qr-scan').addEventListener('click', qrScan);
     $('#btn-qr-image').addEventListener('click', qrFromImage);
@@ -3223,16 +3783,22 @@ function asstEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// La clé API est un moyen de paiement : elle est chiffrée par le coffre de
+// l'appareil et n'existe en clair qu'en mémoire, le temps de la session.
 function asstGetCfg() {
-    try {
-        const c = JSON.parse(localStorage.getItem(ASST_CFG_KEY));
-        if (c && typeof c === 'object') return c;
-    } catch (e) {}
-    return { apiKey: '', balanceEur: null, usdToEur: 0.92, spentEur: 0 };
+    const base = { apiKey: '', balanceEur: null, usdToEur: 0.92, spentEur: 0 };
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(ASST_CFG_KEY)); } catch (e) { c = null; }
+    const out = Object.assign(base, (c && typeof c === 'object') ? c : {});
+    out.apiKey = _secrets.apiKey || '';
+    return out;
 }
 
 function asstSaveCfg(cfg) {
-    localStorage.setItem(ASST_CFG_KEY, JSON.stringify(cfg));
+    const pub = Object.assign({}, cfg);
+    delete pub.apiKey;
+    _secrets.apiKey = cfg.apiKey || '';
+    return secWriteField(ASST_CFG_KEY, pub, 'apiKey', cfg.apiKey || '');
 }
 
 function asstGetData() {
@@ -3259,16 +3825,17 @@ function asstGetReports() {
 const MD_CFG_KEY = 'followdia_mydiabby_cfg';
 const MD_BASE = 'https://app.mydiabby.com';
 
+// Le mot de passe myDiabby n'a aucune raison de quitter l'appareil : il est
+// chiffré par le coffre et ne figure en clair qu'en mémoire.
 function mdGetCfg() {
-    try {
-        const c = JSON.parse(localStorage.getItem(MD_CFG_KEY));
-        if (c && typeof c === 'object') return c;
-    } catch (e) {}
-    return { user: '', pass: '' };
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(MD_CFG_KEY)); } catch (e) { c = null; }
+    return { user: (c && c.user) || '', pass: _secrets.mdPass || '' };
 }
 
 function mdSaveCfg(cfg) {
-    localStorage.setItem(MD_CFG_KEY, JSON.stringify(cfg));
+    _secrets.mdPass = cfg.pass || '';
+    return secWriteField(MD_CFG_KEY, { user: cfg.user || '' }, 'pass', cfg.pass || '');
 }
 
 async function mdLogin(user, pass) {

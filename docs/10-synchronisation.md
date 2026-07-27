@@ -41,9 +41,19 @@ L'icône ⟳ change de couleur : **verte** en cas de succès, **rouge** en cas d
 | Tous les repas, bolus, glucides | Jeton GitHub |
 | Aliments personnalisés | Identifiants myDiabby |
 | Liste des aliments supprimés | Clé API Anthropic et solde |
-| Adresse et jeton Nightscout | Données de pompe importées |
+| Adresse et jeton Nightscout* | Données de pompe importées |
 | Ratios, sensibilités, cibles | Rapports d'analyse |
-| Thème et taille du texte | |
+| Thème et taille du texte | Phrase secrète |
+
+\* Le jeton Nightscout n'est transmis que si la synchronisation est **chiffrée** par une phrase secrète. Sans phrase secrète, l'application ne l'écrit plus dans le Gist ; il se saisit alors à la main sur chaque appareil.
+
+---
+
+> ### 🔒 Avant tout : la phrase secrète
+>
+> Définissez-la dans **⚙ Paramètres → Sécurité** *avant* d'activer la synchronisation. Le contenu du Gist est alors chiffré (AES-GCM 256) : GitHub héberge un fichier dont il ne peut rien lire, et une fuite de l'adresse du Gist ne livre rien.
+>
+> Elle n'est enregistrée nulle part : **notez-la**, et saisissez la même sur chaque appareil. Détails au [chapitre 11](11-securite-donnees.md#la-phrase-secrète-de-synchronisation).
 
 ---
 
@@ -87,11 +97,12 @@ Deux méthodes.
 
 1. Sur l'appareil **déjà configuré** : **⚙ Paramètres → Partage de configuration → Générer QRCode**.
 2. Sur le **nouvel** appareil : **⚙ Paramètres → Scanner QRCode**, et visez l'écran du premier.
-3. La configuration est reprise ; appuyez sur **Sauvegarder**, puis sur ⟳.
+3. Le nouvel appareil demande la **phrase secrète** : saisissez la même que sur le premier.
+4. La configuration est reprise ; appuyez sur **Sauvegarder**, puis sur ⟳.
 
 Si les deux appareils ne sont pas côte à côte, envoyez-vous une **capture d'écran** du QR par un canal privé, puis utilisez **QRCode depuis image**. Supprimez la capture ensuite.
 
-> Le QR transporte l'adresse et le jeton Nightscout, le jeton GitHub et l'identifiant du Gist. Il est chiffré, mais avec une clé présente dans le code public de l'application : traitez-le comme un mot de passe. Ne le publiez jamais.
+> Le QR transporte l'adresse et le jeton Nightscout, le jeton GitHub, l'identifiant du Gist et le sel de dérivation. Il est **chiffré par votre phrase secrète** : sans elle, une photo du code ne donne rien. Supprimez tout de même la capture après usage — la prudence ne coûte rien.
 
 ### Méthode B — À la main
 
@@ -133,7 +144,7 @@ Trois niveaux de protection, du plus immédiat au plus solide :
 
 Le Gist **est** votre sauvegarde principale : il vit sur les serveurs de GitHub, indépendamment de vos téléphones.
 
-Pour une copie de votre côté, le plus simple est **⚙ Paramètres → Sauvegarde et export → 💾 Exporter mes données (JSON)** : le fichier contient repas, aliments et réglages, sans vos identifiants (détail en [7.7](07-configuration.md#77-sauvegarde-et-export)). Rangez-le comme un mot de passe, il contient le jeton Nightscout.
+Pour une copie de votre côté, le plus simple est **⚙ Paramètres → Sauvegarde et export → 💾 Exporter mes données (JSON)** : le fichier contient repas, aliments et réglages, sans vos identifiants (détail en [7.8](07-configuration.md#78-sauvegarde-et-export)). Rangez-le comme un mot de passe, il contient le jeton Nightscout.
 
 Vous pouvez aussi récupérer directement le contenu du Gist :
 

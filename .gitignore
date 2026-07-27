@@ -1,0 +1,27 @@
+# Le dépôt est public : rien de personnel ne doit pouvoir y entrer par accident.
+# Les données de suivi vivent sur le téléphone de l'utilisateur, jamais ici.
+
+# Exports produits par l'application (repas, glycémies, jetons Nightscout)
+FollowDIA_sauvegarde_*.json
+FollowDIA_repas_*.csv
+FollowDIA_analyse_*.pdf
+
+# Secrets et fichiers d'environnement
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+**/config.local.*
+
+# Données de pompe ou de capteur récupérées pour mise au point
+mydiabby*.json
+nightscout*.json
+*.dump.json
+
+# Outils et systèmes
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

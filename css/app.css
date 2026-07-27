@@ -1622,6 +1622,51 @@ canvas {
     cursor: pointer;
 }
 
+/* État de la protection des données */
+.sec-line {
+    font-size: calc(12px * var(--fs, 1));
+    line-height: 1.45;
+    margin: 0 0 6px;
+    padding-left: 20px;
+    position: relative;
+    color: var(--text);
+}
+
+.sec-line::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.sec-ok::before { content: '✅'; }
+.sec-warn::before { content: '⚠️'; }
+.sec-info::before { content: 'ℹ️'; }
+
+.sec-warn { color: var(--warning); }
+
+.qr-unlock {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.qr-unlock input {
+    flex: 1;
+    min-width: 0;
+}
+
+.qr-warning {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: rgba(243, 156, 18, 0.12);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: calc(12px * var(--fs, 1));
+    line-height: 1.45;
+    text-align: left;
+}
+
 .settings-hint {
     font-size: calc(11px * var(--fs, 1));
     color: var(--text-dim);

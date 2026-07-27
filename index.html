@@ -243,6 +243,17 @@
                         <label>Gist ID (laissez vide pour en créer un)</label>
                         <input type="text" id="settings-gist-id" placeholder="ID du Gist" autocomplete="off" spellcheck="false">
                     </div>
+                    <h4>Sécurité</h4>
+                    <div id="security-status"></div>
+                    <div class="input-group">
+                        <label>Phrase secrète de synchronisation</label>
+                        <input type="password" id="settings-sync-pass" placeholder="8 caractères minimum" autocomplete="new-password" spellcheck="false">
+                    </div>
+                    <div class="qr-buttons">
+                        <button type="button" id="btn-sync-pass-apply" class="btn btn-secondary">Activer le chiffrement</button>
+                        <button type="button" id="btn-sync-pass-forget" class="btn btn-secondary">Oublier sur cet appareil</button>
+                    </div>
+                    <p class="settings-hint">Cette phrase chiffre le contenu du Gist et du QR code. <b>Elle n'est enregistrée nulle part</b> : notez-la, elle est irrécupérable. Saisissez la même sur chaque appareil.<br><b>Mettez d'abord à jour tous vos appareils</b> (Forcer la mise à jour) : un appareil resté sur une version antérieure réécrirait le Gist en clair.</p>
                     <h4>Partage de configuration</h4>
                     <div class="qr-buttons">
                         <button id="btn-qr-generate" class="btn btn-secondary">Générer QRCode</button>
@@ -399,6 +410,11 @@
                     <video id="qr-video" playsinline style="width:100%;max-height:60vh;border-radius:8px;background:#000"></video>
                 </div>
                 <p id="qr-message" style="margin-top:12px;font-size:calc(13px * var(--fs, 1));color:var(--text-dim)"></p>
+                <div id="qr-unlock" class="qr-unlock hidden">
+                    <input type="password" id="qr-unlock-pass" placeholder="Phrase secrète" autocomplete="current-password" spellcheck="false">
+                    <button type="button" id="qr-unlock-ok" class="btn btn-primary">Déverrouiller</button>
+                </div>
+                <p id="qr-warning" class="qr-warning hidden"></p>
             </div>
         </div>
     </div>

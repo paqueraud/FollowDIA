@@ -28,8 +28,8 @@ En conséquence : **c'est vous qui hébergez tout**, et la sécurité de l'ensem
 | **Glycémies du capteur** | votre serveur Nightscout | vous, et quiconque possède un jeton valide |
 | **Repas, bolus, glucides** | mémoire du navigateur + votre **Gist privé** | vous, via votre compte GitHub |
 | **Aliments personnalisés** | idem | idem |
-| **Identifiants myDiabby** | mémoire du navigateur, **cet appareil uniquement** | quiconque a accès à l'appareil déverrouillé |
-| **Clé API Anthropic** | idem | idem |
+| **Identifiants myDiabby** | mémoire du navigateur, **cet appareil uniquement**, mot de passe **chiffré** | quiconque a accès à l'appareil déverrouillé |
+| **Clé API Anthropic** | idem, **chiffrée** | idem |
 | **Données de pompe importées** | idem | idem |
 | **Agrégats envoyés à l'IA** | transmis à Anthropic le temps de l'analyse | Anthropic, selon sa politique de conservation |
 | **Rapports d'analyse** | mémoire du navigateur (5 derniers) | quiconque a accès à l'appareil |
@@ -66,33 +66,48 @@ Consultez la politique de confidentialité et de conservation d'Anthropic avant 
 | Élément | Protection réelle |
 |---|---|
 | Échanges avec Nightscout, GitHub, myDiabby, Anthropic | **HTTPS** : chiffrés en transit |
-| Gist de synchronisation | **privé** (non listé, non indexé) mais **non chiffré** : lisible par quiconque a accès à votre compte GitHub |
-| Données dans le navigateur | **non chiffrées** : lisibles par quiconque a accès à l'appareil déverrouillé |
-| Sauvegardes automatiques locales | **non chiffrées**, sur l'appareil, dans un stockage distinct des données courantes |
-| Fichier de sauvegarde exporté | **non chiffré** ; contient l'adresse et le **jeton Nightscout**, mais ni le jeton GitHub, ni les identifiants myDiabby, ni la clé API |
-| Identifiants myDiabby stockés | **non chiffrés**, en clair sur l'appareil |
-| QR code de configuration | chiffré (AES-GCM), **mais avec une clé présente dans le code public** |
+| Gist de synchronisation | **chiffré** (AES-GCM 256) par votre phrase secrète, si vous en avez défini une |
+| QR code de configuration | **chiffré** (AES-GCM 256) par la même phrase secrète |
+| Mot de passe myDiabby, clé API Anthropic | **chiffrés** sur l'appareil par une clé non exportable |
+| Repas, glycémies et réglages dans le navigateur | **non chiffrés** : lisibles par qui accède à l'appareil déverrouillé |
+| Sauvegardes automatiques locales | **non chiffrées**, dans un stockage distinct des données courantes |
+| Fichier de sauvegarde exporté | **non chiffré** ; contient l'adresse et le **jeton Nightscout**, mais ni le jeton GitHub, ni le mot de passe myDiabby, ni la clé API |
 
-### Sur le QR code — soyez lucide
+### La phrase secrète de synchronisation
 
-Le contenu du QR est chiffré, ce qui empêche une lecture accidentelle par un scanner quelconque. Mais la clé de chiffrement est **écrite dans le code JavaScript de l'application, qui est public**. Quelqu'un qui connaît le projet peut donc déchiffrer un QR qu'il aurait intercepté.
+Elle se définit dans **Paramètres → Sécurité**, et c'est le seul réglage de sécurité que vous ayez à faire.
 
-**Traitez ce QR exactement comme un mot de passe :** ne le publiez pas, ne l'envoyez pas sur un groupe de discussion, et supprimez la capture d'écran après usage.
+- Elle chiffre **le contenu du Gist** et **le QR code**, en AES-GCM 256 bits. La clé est dérivée de votre phrase par PBKDF2-SHA256, 210 000 itérations, avec un sel aléatoire de 128 bits — le nombre d'itérations recommandé par l'OWASP, choisi pour rendre une attaque par dictionnaire coûteuse.
+- **Elle n'est enregistrée nulle part**, ni sur l'appareil, ni chez GitHub. Seule la clé dérivée est conservée, dans un coffre local d'où elle ne peut pas être extraite. **Notez-la** : personne ne peut vous la redonner, et sans elle les données déjà chiffrées sont définitivement illisibles.
+- Saisissez **la même phrase sur chaque appareil**. Un appareil qui ne l'a pas voit un Gist illisible : il refuse alors de synchroniser plutôt que d'écraser les données des autres.
 
-### Sur le jeton Nightscout dans le Gist
+Une fois la phrase en place, GitHub héberge un fichier dont il ne peut rien lire, et une photo du QR code ne sert à rien sans la phrase.
 
-Le Gist contient vos réglages, dont **l'adresse et le jeton Nightscout**. C'est nécessaire pour qu'un nouvel appareil se configure tout seul, mais cela signifie que quiconque accède à votre compte GitHub accède aussi à vos glycémies. Le jeton GitHub, lui, n'est jamais écrit dans le Gist.
+> ⚠️ **Mettez à jour tous vos appareils avant de définir la phrase secrète** — **⚙ Paramètres → Application → Forcer la mise à jour** sur chacun. Un appareil resté sur une version antérieure ne sait pas lire un Gist chiffré : à la première saisie, il le réécrirait en clair avec ses propres données, effaçant au passage ce qui n'existait que sur les autres appareils. Les versions à jour, elles, refusent d'écrire quand elles ne savent pas lire.
+
+> **Tant qu'aucune phrase n'est définie :** le Gist reste en clair, mais l'application **n'y écrit plus le jeton Nightscout** — il se transmet alors par QR code ou à la main — et **refuse de générer un QR code**, en expliquant pourquoi.
+
+### Les QR codes générés avant la version de juillet 2026
+
+Ils utilisaient une clé de chiffrement **écrite dans le code public** de l'application : c'était de l'obfuscation, pas une protection. L'application sait encore les lire, pour ne pas vous bloquer, mais elle vous avertit alors qu'ils sont à considérer comme lisibles par tous. **Détruisez-les et régénérez-en un** après avoir défini une phrase secrète.
+
+### Le coffre de l'appareil
+
+Le mot de passe myDiabby et la clé API Anthropic sont chiffrés par une clé AES-GCM 256 générée sur l'appareil, marquée **non exportable** : le navigateur interdit à tout script d'en lire la matière. Une copie du stockage du navigateur — sauvegarde du téléphone, profil recopié, coup d'œil dans les outils de développement — ne livre plus que du chiffré. La migration est automatique : une valeur encore en clair est chiffrée au premier démarrage suivant la mise à jour.
+
+**Ce que cela ne protège pas, et il faut le savoir :** un code exécuté dans l'application elle-même peut se servir de cette clé sans jamais la lire. Aucune application web ne peut faire mieux ; c'est la limite du navigateur. Le verrouillage de l'appareil reste la première protection.
 
 ---
 
-## 11.5 Les six règles à respecter
+## 11.5 Les sept règles à respecter
 
-1. **Authentification à deux facteurs sur GitHub.** C'est le compte qui protège l'ensemble de vos données de suivi.
-2. **Verrouillage par code ou biométrie sur chaque téléphone.** Les identifiants myDiabby et la clé API y sont en clair.
-3. **Un jeton par usage, à la portée minimale.** Pour GitHub : uniquement `gist`. Pour Nightscout : un jeton de lecture pour l'application, un jeton de dépôt pour xDrip, jamais l'API secret administrateur.
-4. **`AUTH_DEFAULT_ROLES=denied` sur Nightscout** si vous l'auto-hébergez, afin que l'adresse seule ne suffise pas à lire les glycémies.
-5. **Aucune clé dans le dépôt GitHub.** Le dépôt est public, et l'historique conserve tout : une clé publiée une fois doit être révoquée, même si vous la supprimez ensuite.
-6. **Choisissez une adresse Nightscout discrète**, sans le nom complet de l'enfant : elle circulera entre plusieurs appareils et applications.
+1. **Définissez une phrase secrète de synchronisation** dès le premier appareil, et notez-la ailleurs que dans l'application.
+2. **Authentification à deux facteurs sur GitHub.** C'est le compte qui protège l'ensemble de vos données de suivi.
+3. **Verrouillage par code ou biométrie sur chaque téléphone.** Le chiffrement local ne protège pas d'un appareil déverrouillé.
+4. **Un jeton par usage, à la portée minimale.** Pour GitHub : uniquement `gist`. Pour Nightscout : un jeton de lecture pour l'application, un jeton de dépôt pour xDrip, jamais l'API secret administrateur.
+5. **`AUTH_DEFAULT_ROLES=denied` sur Nightscout** si vous l'auto-hébergez, afin que l'adresse seule ne suffise pas à lire les glycémies.
+6. **Aucune clé dans le dépôt GitHub.** Le dépôt est public, et l'historique conserve tout : une clé publiée une fois doit être révoquée, même si vous la supprimez ensuite.
+7. **Choisissez une adresse Nightscout discrète**, sans le nom complet de l'enfant : elle circulera entre plusieurs appareils et applications.
 
 ---
 
@@ -107,6 +122,8 @@ Dans l'ordre :
 5. Ressaisissez les nouveaux jetons sur les appareils que vous conservez.
 
 C'est précisément pour rendre cette opération simple qu'il est conseillé de créer **un jeton par appareil**.
+
+> **Faut-il changer la phrase secrète ?** Elle ne sert à rien à qui n'a pas aussi le jeton GitHub ou le QR code : révoquer le jeton suffit à couper l'accès. Si vous voulez tout de même en changer, définissez la nouvelle phrase sur un appareil que vous avez gardé : le Gist est aussitôt réécrit avec elle, et il faudra la saisir sur les autres appareils.
 
 ---
 
