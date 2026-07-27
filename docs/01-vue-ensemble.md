@@ -100,7 +100,8 @@ Ces éléments expliquent certains comportements et facilitent le dépannage.
 - **Application web installable (PWA)** : une seule page HTML, une feuille de style, un fichier JavaScript. Aucun framework.
 - **Fonctionne hors ligne** grâce à un *service worker* qui met en cache les fichiers de l'application. Les appels à Nightscout, GitHub, myDiabby et Anthropic ne sont **jamais** mis en cache : ils échouent proprement hors connexion.
 - **Mise à jour automatique** : au démarrage, l'application compare sa version à celle publiée et se recharge si nécessaire.
-- **Deux bibliothèques externes seulement**, utilisées pour les QR codes de configuration (`qrcode-generator` et `jsQR`, chargées depuis un CDN et mises en cache). Tout le reste — y compris les graphiques — est écrit à la main.
+- **Aucune ressource externe** : les deux seules bibliothèques utilisées (`qrcode-generator` et `jsQR`, pour les QR codes de configuration) sont hébergées avec l'application. Rien n'est chargé depuis un service tiers, ce qui garantit le fonctionnement hors ligne et met l'application à l'abri d'une panne de CDN. Tout le reste — y compris les graphiques — est écrit à la main.
+- **Sauvegardes locales automatiques** dans IndexedDB, un stockage distinct de celui des données courantes : si ce dernier venait à être corrompu, les instantanés restent intacts et permettent de revenir en arrière.
 - **Graphiques dessinés directement** sur des zones de dessin (`canvas`), sans bibliothèque.
 
 ---

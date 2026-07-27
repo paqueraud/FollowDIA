@@ -57,16 +57,18 @@ Déjà équipé de Nightscout et xDrip ? [Déployez votre instance](docs/05-depl
 - **Statistiques cliniques** : temps dans la cible (ATTD 2019), HbA1c estimée (GMI), coefficient de variation
 - **Assistant IA** : analyse des données de pompe (myDiabby) et proposition argumentée de révision des plages, ratios et sensibilités, avec rapport PDF généré localement
 - **Synchronisation multi-appareils** par Gist GitHub privé
+- **Sauvegardes locales automatiques** (stockage distinct, 8 instantanés) plus export JSON et export CSV des repas
 - **Fonctionne hors ligne**, installable comme une application native (PWA)
 
 ## Architecture
 
-Application web statique, sans backend : un fichier HTML, une feuille de style, un fichier JavaScript. Aucun framework, graphiques dessinés à la main sur `canvas`. Les seules dépendances externes sont deux bibliothèques de QR code, mises en cache pour l'usage hors ligne.
+Application web statique, sans backend : un fichier HTML, une feuille de style, un fichier JavaScript. Aucun framework, graphiques dessinés à la main sur `canvas`. **Aucune ressource externe** : les deux bibliothèques de QR code sont hébergées avec l'application, qui fonctionne donc entièrement hors ligne.
 
 ```
 index.html                      interface
 css/app.css                     styles (thèmes clair/sombre, 4 tailles de police)
 js/app.js                       logique complète
+js/vendor/                      qrcode-generator et jsQR (voir vendor/LICENSES.md)
 foods.json                      base de 540 aliments {n, g, s}
 manifest.json                   déclaration PWA
 sw.js                           cache hors ligne

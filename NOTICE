@@ -66,4 +66,17 @@ de quelque nature que ce soit résultant de l'utilisation, ou de
 l'impossibilité d'utiliser, ce logiciel.
 
 
+THIRD-PARTY COMPONENTS / COMPOSANTS TIERS
+-----------------------------------------
+
+This software bundles two third-party libraries, used only for the
+configuration QR code feature. They are vendored locally so that the
+application works fully offline.
+
+  - qrcode-generator 1.4.4 — Copyright (c) 2009 Kazuhiko Arase — MIT
+  - jsQR 1.4.0 — Copyright (c) Cosmo Wolfe — Apache License 2.0
+
+Full notices: js/vendor/LICENSES.md
+
+
 Conditions d'utilisation complètes : docs/AVERTISSEMENT.md

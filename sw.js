@@ -7,8 +7,8 @@ const ASSETS = [
     './foods.json',
     './manifest.json',
     './version.json',
-    'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
-    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
+    './js/vendor/qrcode-generator.js',
+    './js/vendor/jsQR.min.js'
 ];
 
 // Install: cache all essential assets
@@ -33,11 +33,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
 
-    // Never cache Nightscout or GitHub API calls
-    if (url.hostname !== location.hostname &&
-        !url.href.startsWith('https://cdn.jsdelivr.net/')) {
-        return;
-    }
+    // Tout ce qui est externe (Nightscout, GitHub, myDiabby, Anthropic)
+    // n'est jamais mis en cache : l'application ne sert que ses propres fichiers.
+    if (url.hostname !== location.hostname) return;
 
     // version.json: always network-first to detect updates
     if (url.pathname.endsWith('version.json')) {

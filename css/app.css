@@ -1376,6 +1376,39 @@ canvas {
     line-height: 1.4;
 }
 
+/* Sauvegarde et export */
+.backup-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.backup-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.backup-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--bg-card-alt);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-size: calc(12px * var(--fs, 1));
+    color: var(--text);
+}
+
+.backup-item .btn {
+    padding: 6px 12px;
+    font-size: calc(12px * var(--fs, 1));
+    white-space: nowrap;
+}
+
 /* Conditions d'utilisation */
 .disclaimer-content {
     overflow-wrap: break-word;

@@ -11,7 +11,7 @@
 
 **Temps nécessaire :** 15 minutes.
 
-> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.8). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
+> **Les réglages sont propres à chaque appareil**, sauf ceux qui sont synchronisés (voir le tableau 7.9). Un réglage fait sur le téléphone n'apparaît pas automatiquement sur l'ordinateur, sauf si la synchronisation est active.
 >
 > **Pensez à appuyer sur « Sauvegarder »** en bas de la fenêtre : rien n'est enregistré tant que vous ne l'avez pas fait.
 
@@ -115,14 +115,53 @@ Le QR contient **exactement quatre informations** : l'adresse Nightscout, le jet
 
 ---
 
-## 7.7 Application
+## 7.7 Sauvegarde et export
+
+Cette section protège vos données contre la principale fragilité de l'application : **le stockage du navigateur**. Une donnée corrompue, un nettoyage automatique par iOS, un téléphone perdu — et tout ce qui n'a pas été sauvegardé ailleurs disparaît.
+
+| Bouton | Ce qu'il fait |
+|---|---|
+| **💾 Exporter mes données (JSON)** | télécharge un fichier complet de vos repas, aliments et réglages. Sur téléphone, la feuille de partage s'ouvre pour l'envoyer où vous voulez. |
+| **📊 Exporter les repas (CSV)** | télécharge un tableau des repas, ouvrable directement dans Excel ou LibreOffice |
+| **↩️ Restaurer un fichier** | recharge une sauvegarde JSON précédemment exportée |
+| **Créer une sauvegarde maintenant** | force un instantané local immédiat |
+
+### Les sauvegardes automatiques
+
+L'application enregistre régulièrement un **instantané** de vos données dans un stockage **distinct** de celui utilisé au quotidien (IndexedDB). Un instantané est créé quelques secondes après une saisie, au maximum une fois toutes les 5 minutes ; **les 8 plus récents** sont conservés, les plus anciens supprimés.
+
+Ces instantanés sont listés sous les boutons, avec leur date et le nombre de jours de données qu'ils contiennent, et un bouton **Restaurer** pour chacun. C'est le filet de sécurité en cas de données corrompues : si l'application affiche le bandeau rouge d'erreur, celui-ci propose directement **Restaurer la dernière sauvegarde**.
+
+> Ces instantanés vivent **sur l'appareil**. Ils ne protègent pas d'une perte du téléphone : pour cela, utilisez l'export JSON et/ou la [synchronisation](10-synchronisation.md).
+
+### Ce que contient le fichier exporté
+
+| Inclus | Exclu |
+|---|---|
+| Repas, bolus, glucides | Jeton GitHub |
+| Aliments personnalisés et supprimés | Identifiants myDiabby |
+| Ratios, sensibilités, cibles | Clé API Anthropic |
+| Adresse **et jeton** Nightscout | Données de pompe importées |
+| Thème et taille du texte | Rapports d'analyse |
+
+> ⚠️ **Le fichier contient votre jeton Nightscout** — nécessaire pour qu'une restauration remette l'application en état de marche. **Traitez-le comme un mot de passe** : ne l'envoyez pas par un canal non sécurisé et ne le déposez pas sur un partage public.
+
+### Le fichier CSV
+
+Une ligne par repas saisi, avec la date, le repas, la glycémie, la tendance, l'insuline active, la correction recommandée et faite, les glucides, les bolus théoriques et injectés, les pourcentages réalisés, les paramètres du repas et le détail des aliments (masse servie et masse restante).
+
+Le format est prévu pour l'Excel français : séparateur point-virgule, virgule décimale et encodage avec marque d'ordre — le fichier s'ouvre d'un double-clic, accents compris.
+
+---
+
+## 7.8 Application
 
 - **Forcer la mise à jour** : vide le cache et recharge la dernière version publiée. Vos données ne sont pas touchées.
 - Sous le bouton figure le **numéro de version** installé, de la forme `202607261650-02ed11f`. Communiquez-le en cas de demande d'aide.
 
 ---
 
-## 7.8 Ce qui est synchronisé, ce qui ne l'est pas
+## 7.9 Ce qui est synchronisé, ce qui ne l'est pas
 
 | Réglage | Synchronisé entre appareils ? |
 |---|---|
@@ -137,7 +176,7 @@ Le QR contient **exactement quatre informations** : l'adresse Nightscout, le jet
 
 ---
 
-## 7.9 Récapitulatif
+## 7.10 Récapitulatif
 
 - [ ] L'adresse et le jeton Nightscout sont saisis, et la courbe s'affiche.
 - [ ] Les ratios, sensibilités et cibles correspondent à l'ordonnance.

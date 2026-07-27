@@ -39,6 +39,7 @@ En conséquence : **c'est vous qui hébergez tout**, et la sécurité de l'ensem
 - Le **nom** et la **date de naissance** de l'enfant : l'application ne les demande à aucun moment.
 - Les identifiants myDiabby, la clé Anthropic et les données de pompe **ne partent jamais** dans le Gist.
 - Aucune donnée n'est envoyée à un service d'analyse d'audience : l'application n'en contient aucun.
+- L'application ne charge **aucune ressource depuis un service tiers** : toutes ses bibliothèques sont hébergées avec elle. Aucun CDN n'apprend donc que vous l'utilisez, ni quand.
 
 ---
 
@@ -67,6 +68,8 @@ Consultez la politique de confidentialité et de conservation d'Anthropic avant 
 | Échanges avec Nightscout, GitHub, myDiabby, Anthropic | **HTTPS** : chiffrés en transit |
 | Gist de synchronisation | **privé** (non listé, non indexé) mais **non chiffré** : lisible par quiconque a accès à votre compte GitHub |
 | Données dans le navigateur | **non chiffrées** : lisibles par quiconque a accès à l'appareil déverrouillé |
+| Sauvegardes automatiques locales | **non chiffrées**, sur l'appareil, dans un stockage distinct des données courantes |
+| Fichier de sauvegarde exporté | **non chiffré** ; contient l'adresse et le **jeton Nightscout**, mais ni le jeton GitHub, ni les identifiants myDiabby, ni la clé API |
 | Identifiants myDiabby stockés | **non chiffrés**, en clair sur l'appareil |
 | QR code de configuration | chiffré (AES-GCM), **mais avec une clé présente dans le code public** |
 

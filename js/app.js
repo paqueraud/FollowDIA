@@ -223,6 +223,9 @@ function sanitizeState() {
 
 function saveState() {
     localStorage.setItem('followdia_data', JSON.stringify(state));
+    // Instantané local différé, pour pouvoir revenir en arrière si
+    // le stockage du navigateur venait à être corrompu
+    if (typeof scheduleLocalBackup === 'function') scheduleLocalBackup();
 }
 
 function loadSettings() {
@@ -2824,6 +2827,7 @@ async function initApp() {
     // Settings
     $('#btn-settings').addEventListener('click', () => {
         renderSettings();
+        renderBackupList();
         $('#settings-modal').classList.remove('hidden');
     });
 
@@ -2935,10 +2939,19 @@ function showFatalError(msg) {
             <div class="fatal-msg"></div>
             <div class="fatal-actions">
                 <button id="fatal-reload" class="btn btn-secondary">Recharger</button>
+                <button id="fatal-restore" class="btn btn-secondary hidden">Restaurer la dernière sauvegarde</button>
                 <button id="fatal-reset" class="btn btn-danger">Réinitialiser les données locales</button>
             </div>`;
         document.body.appendChild(el);
         el.querySelector('#fatal-reload').addEventListener('click', () => location.reload());
+        // La restauration n'est proposée que s'il existe réellement un instantané
+        const restoreBtn = el.querySelector('#fatal-restore');
+        restoreBtn.addEventListener('click', () => restoreLatestLocalBackup());
+        if (typeof listLocalBackups === 'function') {
+            listLocalBackups().then(list => {
+                if (list.length) restoreBtn.classList.remove('hidden');
+            }).catch(() => {});
+        }
         el.querySelector('#fatal-reset').addEventListener('click', () => {
             if (confirm('Effacer toutes les données FollowDIA de cet appareil ? Les données présentes sur le Gist seront retéléchargées à la prochaine synchronisation.')) {
                 Object.keys(localStorage)
@@ -3019,6 +3032,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const termsBtn = $('#btn-show-terms');
     if (termsBtn) termsBtn.addEventListener('click', () => showDisclaimer('read'));
 
+    initBackup();
     initApp();
 });
 
@@ -4937,4 +4951,324 @@ function initAssistant() {
 }
 
 document.addEventListener('DOMContentLoaded', initAssistant);
+
+
+// ============================================================
+// SAUVEGARDE ET EXPORT
+// localStorage est le point unique de défaillance : une entrée
+// corrompue peut rendre l'application inutilisable. On conserve
+// donc des instantanés dans IndexedDB (stockage distinct) et on
+// permet d'exporter un fichier hors de l'appareil.
+// ============================================================
+const BACKUP_DB = 'followdia_backup';
+const BACKUP_STORE = 'snapshots';
+const BACKUP_KEEP = 8;              // nombre d'instantanés conservés
+const BACKUP_MIN_INTERVAL = 300000; // au plus un instantané toutes les 5 min
+
+// Clés jamais écrites dans un fichier qui quitte l'appareil
+const EXPORT_EXCLUDED_KEYS = ['followdia_mydiabby_cfg', 'followdia_assistant_cfg'];
+
+function backupOpenDb() {
+    return new Promise((resolve, reject) => {
+        if (!('indexedDB' in window)) { reject(new Error('IndexedDB indisponible')); return; }
+        const req = indexedDB.open(BACKUP_DB, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(BACKUP_STORE)) {
+                db.createObjectStore(BACKUP_STORE, { keyPath: 'ts' });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('Ouverture IndexedDB impossible'));
+    });
+}
+
+function backupTx(mode, fn) {
+    return backupOpenDb().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(BACKUP_STORE, mode);
+        const store = tx.objectStore(BACKUP_STORE);
+        let result;
+        try { result = fn(store); } catch (e) { reject(e); return; }
+        tx.oncomplete = () => { db.close(); resolve(result && result.result !== undefined ? result.result : result); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    }));
+}
+
+// Photographie de toutes les données locales de l'application
+function backupCollect(includeSecrets) {
+    const keys = {};
+    Object.keys(localStorage)
+        .filter(k => k.indexOf('followdia_') === 0)
+        .filter(k => includeSecrets || EXPORT_EXCLUDED_KEYS.indexOf(k) < 0)
+        .forEach(k => { keys[k] = localStorage.getItem(k); });
+    if (!includeSecrets && keys.followdia_settings) {
+        // Le jeton GitHub n'a pas à sortir de l'appareil
+        try {
+            const s = JSON.parse(keys.followdia_settings);
+            delete s.ghToken;
+            keys.followdia_settings = JSON.stringify(s);
+        } catch (e) { /* réglages illisibles : on les laisse tels quels */ }
+    }
+    return {
+        format: 'followdia-backup-v1',
+        app: APP_VERSION,
+        createdAt: new Date().toISOString(),
+        keys
+    };
+}
+
+let _backupTimer = null;
+let _lastBackupTs = 0;
+
+// Instantané automatique, espacé pour ne pas écrire à chaque frappe
+function scheduleLocalBackup() {
+    if (_backupTimer) clearTimeout(_backupTimer);
+    _backupTimer = setTimeout(() => {
+        if (Date.now() - _lastBackupTs < BACKUP_MIN_INTERVAL) return;
+        saveLocalBackup().catch(e => console.warn('Sauvegarde locale impossible :', e && e.message));
+    }, 8000);
+}
+
+async function saveLocalBackup() {
+    const snap = backupCollect(true);
+    snap.ts = Date.now();
+    _lastBackupTs = snap.ts;
+    await backupTx('readwrite', store => store.put(snap));
+    // Ne conserver que les N plus récents
+    const all = await backupTx('readonly', store => store.getAll());
+    const list = (all || []).sort((a, b) => b.ts - a.ts);
+    if (list.length > BACKUP_KEEP) {
+        const old = list.slice(BACKUP_KEEP);
+        await backupTx('readwrite', store => { old.forEach(s => store.delete(s.ts)); });
+    }
+    return snap.ts;
+}
+
+async function listLocalBackups() {
+    try {
+        const all = await backupTx('readonly', store => store.getAll());
+        return (all || []).sort((a, b) => b.ts - a.ts);
+    } catch (e) {
+        console.warn('Lecture des sauvegardes impossible :', e && e.message);
+        return [];
+    }
+}
+
+// Réécrit les clés locales à partir d'un instantané
+function applyBackup(snap) {
+    if (!snap || snap.format !== 'followdia-backup-v1' || !snap.keys) {
+        throw new Error('Fichier de sauvegarde invalide');
+    }
+    const entries = Object.keys(snap.keys).filter(k => k.indexOf('followdia_') === 0);
+    if (!entries.length) throw new Error('Sauvegarde vide');
+    entries.forEach(k => localStorage.setItem(k, snap.keys[k]));
+    return entries.length;
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function backupStamp() {
+    const d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+async function exportBackupFile() {
+    try {
+        const snap = backupCollect(false);
+        const json = JSON.stringify(snap, null, 1);
+        const filename = 'FollowDIA_sauvegarde_' + backupStamp() + '.json';
+        const blob = new Blob([json], { type: 'application/json' });
+        if (navigator.canShare && navigator.share) {
+            const file = new File([blob], filename, { type: 'application/json' });
+            if (navigator.canShare({ files: [file] })) {
+                try { await navigator.share({ files: [file], title: 'Sauvegarde FollowDIA' }); return; }
+                catch (e) { if (e && e.name === 'AbortError') return; }
+            }
+        }
+        downloadBlob(blob, filename);
+        toast('Sauvegarde enregistrée');
+    } catch (e) {
+        console.error('Export sauvegarde :', e);
+        toast('Export impossible');
+    }
+}
+
+// ------------------------------------------------------------
+// Export CSV des repas (séparateur « ; » et virgule décimale
+// pour une ouverture directe dans Excel en français)
+// ------------------------------------------------------------
+function csvNum(v) {
+    if (v == null || v === '' || (typeof v === 'number' && !isFinite(v))) return '';
+    return String(v).replace('.', ',');
+}
+
+function csvCell(v) {
+    const s = v == null ? '' : String(v);
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function buildMealsCsv() {
+    const header = ['Date', 'Repas', 'Glycemie (mg/dl)', 'Tendance', 'Insuline active (UI)',
+        'Correction recommandee (UI)', 'Correction faite (UI)', 'Correction realisee (%)',
+        'Glucides (g)', 'Bolus repas theorique (UI)', 'Bolus repas injecte (UI)', 'Bolus repas realise (%)',
+        'Bolus total du (UI)', 'Bolus total fait (UI)', 'Bolus total realise (%)',
+        'Pourcentage voulu (%)', 'Ratio (g/UI)', 'Sensibilite', 'Cible', 'Aliments'];
+    const rows = [header.map(csvCell).join(';')];
+
+    Object.keys(state).sort().forEach(date => {
+        MEALS.forEach(m => {
+            const md = state[date] && state[date][m.id];
+            if (!md || !md.foods || !md.foods.some(f => f.name)) return;
+            const t = calcMealTotals(md, m.id);
+            const p = (settings && settings[m.id]) || {};
+            const aliments = (md.foods || [])
+                .filter(f => f.name)
+                .map(f => {
+                    const servi = f.massServed != null ? f.massServed : '';
+                    const reste = f.massRemaining != null ? f.massRemaining : 0;
+                    return f.name + ' (' + servi + ' g servis, ' + reste + ' g restants)';
+                }).join(' | ');
+            rows.push([
+                csvCell(date), csvCell(m.label),
+                csvNum(md.glucose), csvCell(md.trend || ''), csvNum(md.activeInsulin),
+                csvNum(t.correction && t.correction.safe), csvNum(t.correctionGivenUI), csvNum(t.correctionPct),
+                csvNum(t.totalCarbs), csvNum(t.mealBolusUI), csvNum(t.totalBolusGivenUI), csvNum(t.mealPct),
+                csvNum(t.totalDueWithCorrection), csvNum(t.totalGivenWithCorrection), csvNum(t.pctGiven),
+                csvNum(md.wantPct), csvNum(p.ratio), csvNum(p.sensitivity), csvNum(p.target),
+                csvCell(aliments)
+            ].join(';'));
+        });
+    });
+    return rows;
+}
+
+function exportMealsCsv() {
+    try {
+        const rows = buildMealsCsv();
+        if (rows.length < 2) { toast('Aucun repas à exporter'); return; }
+        // BOM UTF-8 : sans lui, Excel affiche mal les accents
+        const csv = '﻿' + rows.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        downloadBlob(blob, 'FollowDIA_repas_' + backupStamp() + '.csv');
+        toast((rows.length - 1) + ' repas exportés');
+    } catch (e) {
+        console.error('Export CSV :', e);
+        toast('Export CSV impossible');
+    }
+}
+
+// ------------------------------------------------------------
+// Restauration
+// ------------------------------------------------------------
+function restoreFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const snap = JSON.parse(reader.result);
+            const when = snap.createdAt ? new Date(snap.createdAt).toLocaleString('fr-FR') : 'date inconnue';
+            if (!confirm('Restaurer la sauvegarde du ' + when + ' ?\n\n'
+                + 'Les données actuelles de cet appareil seront remplacées.')) return;
+            const n = applyBackup(snap);
+            toast(n + ' éléments restaurés — rechargement...');
+            setTimeout(() => location.reload(), 1200);
+        } catch (e) {
+            console.error('Restauration :', e);
+            toast(e.message || 'Fichier illisible');
+        }
+    };
+    reader.readAsText(file);
+}
+
+async function restoreLatestLocalBackup() {
+    const list = await listLocalBackups();
+    if (!list.length) { toast('Aucune sauvegarde automatique disponible'); return; }
+    const snap = list[0];
+    const when = new Date(snap.ts).toLocaleString('fr-FR');
+    if (!confirm('Restaurer la sauvegarde automatique du ' + when + ' ?\n\n'
+        + 'Les données actuelles de cet appareil seront remplacées.')) return;
+    try {
+        const n = applyBackup(snap);
+        toast(n + ' éléments restaurés — rechargement...');
+        setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+        console.error('Restauration :', e);
+        toast(e.message || 'Restauration impossible');
+    }
+}
+
+async function renderBackupList() {
+    const el = $('#backup-list');
+    if (!el) return;
+    const list = await listLocalBackups();
+    if (!list.length) {
+        el.innerHTML = '<p class="settings-hint">Aucune sauvegarde automatique pour l\'instant : la première est créée peu après votre prochaine saisie.</p>';
+        return;
+    }
+    let html = '<p class="settings-hint">Sauvegardes automatiques sur cet appareil (' + list.length + ') :</p><div class="backup-items">';
+    list.forEach(s => {
+        const d = new Date(s.ts);
+        const nDays = (() => {
+            try { return Object.keys(JSON.parse(s.keys.followdia_data || '{}')).length; } catch (e) { return '?'; }
+        })();
+        html += '<div class="backup-item"><span>' + asstEsc(d.toLocaleString('fr-FR')) + '<br>'
+            + '<span class="asst-dim">' + nDays + ' jours de données</span></span>'
+            + '<button class="btn btn-secondary backup-restore" data-ts="' + s.ts + '">Restaurer</button></div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+
+    $$('.backup-restore').forEach(b => b.addEventListener('click', async () => {
+        const ts = parseInt(b.dataset.ts, 10);
+        const snap = (await listLocalBackups()).find(s => s.ts === ts);
+        if (!snap) { toast('Sauvegarde introuvable'); return; }
+        if (!confirm('Restaurer la sauvegarde du ' + new Date(ts).toLocaleString('fr-FR') + ' ?\n\n'
+            + 'Les données actuelles de cet appareil seront remplacées.')) return;
+        try {
+            const n = applyBackup(snap);
+            toast(n + ' éléments restaurés — rechargement...');
+            setTimeout(() => location.reload(), 1200);
+        } catch (e) {
+            toast(e.message || 'Restauration impossible');
+        }
+    }));
+}
+
+function initBackup() {
+    const exportBtn = $('#btn-export-backup');
+    if (exportBtn) exportBtn.addEventListener('click', exportBackupFile);
+
+    const csvBtn = $('#btn-export-csv');
+    if (csvBtn) csvBtn.addEventListener('click', exportMealsCsv);
+
+    const restoreBtn = $('#btn-restore-backup');
+    const fileInput = $('#backup-file-input');
+    if (restoreBtn && fileInput) {
+        restoreBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files && fileInput.files[0]) restoreFromFile(fileInput.files[0]);
+            fileInput.value = '';
+        });
+    }
+
+    const nowBtn = $('#btn-backup-now');
+    if (nowBtn) nowBtn.addEventListener('click', async () => {
+        try {
+            _lastBackupTs = 0;
+            await saveLocalBackup();
+            toast('Sauvegarde créée');
+            renderBackupList();
+        } catch (e) {
+            toast('Sauvegarde impossible : ' + (e.message || e));
+        }
+    });
+}
 

@@ -25,11 +25,13 @@ Avant tout diagnostic, ces trois gestes règlent la majorité des situations :
 
 **Un bandeau rouge d'erreur s'affiche en bas**
 
-L'application a détecté une erreur et vous propose deux boutons.
+L'application a détecté une erreur et vous propose plusieurs boutons. Essayez-les **dans cet ordre** :
 
-1. Appuyez sur **Recharger** : cela suffit dans la plupart des cas.
-2. Si le bandeau revient à chaque ouverture, appuyez sur **Réinitialiser les données locales**. Cette action efface les données de **cet appareil seulement**.
-3. Si la synchronisation est configurée, tout redescend du Gist ensuite. **Sinon, les données de cet appareil sont perdues** — d'où l'intérêt d'activer la synchronisation.
+1. **Recharger** : cela suffit dans la plupart des cas.
+2. **Restaurer la dernière sauvegarde** (ce bouton n'apparaît que s'il existe un instantané) : remplace les données de l'appareil par le dernier instantané automatique intact. C'est la bonne réponse quand les données locales sont corrompues — vous ne perdez au pire que les dernières minutes de saisie.
+3. **Réinitialiser les données locales**, en dernier recours : efface les données de **cet appareil seulement**. Si la synchronisation est configurée, tout redescend du Gist ensuite ; **sinon, les données de cet appareil sont perdues**.
+
+> Pour éviter d'en arriver là : activez la [synchronisation](10-synchronisation.md) et exportez de temps en temps un fichier JSON (⚙ Paramètres → Sauvegarde et export).
 
 **Écran blanc ou seuls les onglets s'affichent**
 

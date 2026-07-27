@@ -250,6 +250,17 @@
                         <button id="btn-qr-image" class="btn btn-secondary">QRCode depuis image</button>
                         <input type="file" id="qr-file-input" accept="image/*" style="display:none">
                     </div>
+                    <h4>Sauvegarde et export</h4>
+                    <div class="backup-actions">
+                        <button id="btn-export-backup" class="btn btn-secondary">💾 Exporter mes données (JSON)</button>
+                        <button id="btn-export-csv" class="btn btn-secondary">📊 Exporter les repas (CSV)</button>
+                        <button id="btn-restore-backup" class="btn btn-secondary">↩️ Restaurer un fichier</button>
+                        <input type="file" id="backup-file-input" accept="application/json,.json" style="display:none">
+                        <button id="btn-backup-now" class="btn btn-secondary">Créer une sauvegarde maintenant</button>
+                    </div>
+                    <p class="settings-hint">Le fichier JSON contient vos repas, vos aliments et vos réglages, <b>dont l'adresse et le jeton Nightscout</b> : conservez-le comme un mot de passe. Vos identifiants myDiabby, votre clé API et votre jeton GitHub n'y figurent pas. Le CSV s'ouvre directement dans Excel.</p>
+                    <div id="backup-list"></div>
+
                     <h4>Application</h4>
                     <button id="btn-force-update" class="btn btn-secondary">Forcer la mise à jour</button>
                     <p id="app-version-display" style="margin-top:8px;font-size:calc(11px * var(--fs, 1));color:var(--text-dim)"></p>
@@ -378,8 +389,10 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Bibliothèques QR hébergées localement : aucun appel réseau externe,
+         fonctionnement garanti hors ligne (voir js/vendor/LICENSES.md) -->
+    <script src="js/vendor/qrcode-generator.js?v=20260322a"></script>
+    <script src="js/vendor/jsQR.min.js?v=20260322a"></script>
     <script src="js/app.js?v=20260322a"></script>
 </body>
 </html>

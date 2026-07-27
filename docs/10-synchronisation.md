@@ -121,9 +121,21 @@ Concrètement : deux parents qui saisissent **des repas différents** ne se gên
 
 ## 10.6 Sauvegarde et restauration
 
+Trois niveaux de protection, du plus immédiat au plus solide :
+
+| Niveau | Où | Protège de |
+|---|---|---|
+| **Instantanés automatiques** (8 derniers) | sur l'appareil, dans un stockage distinct | données corrompues, fausse manipulation |
+| **Export JSON** | fichier que vous rangez où vous voulez | perte ou remplacement de l'appareil |
+| **Gist GitHub** | serveurs de GitHub | tout perdre d'un coup |
+
 ### Sauvegarder
 
-Le Gist **est** votre sauvegarde : il vit sur les serveurs de GitHub, indépendamment de vos téléphones. Pour en garder une copie hors ligne :
+Le Gist **est** votre sauvegarde principale : il vit sur les serveurs de GitHub, indépendamment de vos téléphones.
+
+Pour une copie de votre côté, le plus simple est **⚙ Paramètres → Sauvegarde et export → 💾 Exporter mes données (JSON)** : le fichier contient repas, aliments et réglages, sans vos identifiants (détail en [7.7](07-configuration.md#77-sauvegarde-et-export)). Rangez-le comme un mot de passe, il contient le jeton Nightscout.
+
+Vous pouvez aussi récupérer directement le contenu du Gist :
 
 1. Ouvrez <https://gist.github.com/>, puis votre Gist.
 2. Bouton **Raw** → la page affiche le contenu brut.
@@ -135,9 +147,16 @@ Le Gist **est** votre sauvegarde : il vit sur les serveurs de GitHub, indépenda
 2. Saisissez le jeton GitHub et l'identifiant du Gist.
 3. Appuyez sur ⟳ : toutes vos données redescendent.
 
+### Restaurer sur un appareil neuf
+
+Deux voies, au choix :
+
+- **Depuis un fichier** : ⚙ Paramètres → Sauvegarde et export → **↩️ Restaurer un fichier**, puis choisissez votre export JSON. L'application demande confirmation en affichant la date de la sauvegarde, puis se recharge.
+- **Depuis le Gist** : saisissez le jeton GitHub et l'identifiant du Gist, puis appuyez sur ⟳.
+
 ### Repartir de zéro sur un appareil
 
-Si l'application se comporte anormalement sur un appareil précis, le bandeau d'erreur propose **Réinitialiser les données locales**. Cette action efface les données de **cet appareil uniquement** ; celles du Gist sont retéléchargées à la synchronisation suivante.
+Si l'application se comporte anormalement sur un appareil précis, le bandeau d'erreur propose d'abord **Restaurer la dernière sauvegarde** — c'est à essayer en premier, cela règle le cas de données corrompues sans rien perdre. En dernier recours, **Réinitialiser les données locales** efface les données de **cet appareil uniquement** ; celles du Gist sont retéléchargées à la synchronisation suivante.
 
 ---
 
