@@ -2,7 +2,23 @@
 
 Application de suivi de l'**insulinothérapie fonctionnelle** pour un enfant vivant avec un diabète de type 1 : calcul des bolus repas, suivi des glycémies du capteur, statistiques cliniques (temps dans la cible, GMI, variabilité) et assistance à la révision des paramètres de la pompe.
 
-> ⚠️ **FollowDIA n'est pas un dispositif médical.** C'est un outil d'aide au calcul et au suivi, sans certification ni validation clinique. Il ne remplace ni votre lecteur de glycémie, ni votre pompe, ni l'avis de votre équipe de diabétologie. Ne modifiez jamais les réglages de la pompe sans validation médicale.
+---
+
+> # ⚠️ AVERTISSEMENT
+>
+> # FollowDIA n'est pas un dispositif médical.
+>
+> # L'utilisateur est seul responsable de l'administration de l'insuline et de toute modification des paramètres de sa pompe.
+>
+> # Le développeur ne peut être tenu responsable d'aucun dommage résultant de l'utilisation de cette application.
+
+Aucun marquage CE, aucune certification, aucune validation clinique. Cet outil ne remplace ni votre lecteur de glycémie, ni votre pompe, ni l'avis de votre équipe de diabétologie. Vérifiez chaque calcul avant administration ; ne modifiez aucun réglage de pompe sans validation médicale.
+
+Application libre, **fournie gratuitement, en l'état, sans garantie d'aucune sorte**, à titre bénévole et non lucratif. Son utilisation vaut acceptation pleine et entière des conditions, et se fait **aux seuls risques et périls de l'utilisateur**.
+
+### ➡️ **[LIRE LES CONDITIONS D'UTILISATION COMPLÈTES](docs/AVERTISSEMENT.md)**
+
+---
 
 ## 📖 Documentation
 
@@ -58,3 +74,13 @@ Le détail figure au [chapitre 5](docs/05-deploiement.md).
 ## Vie privée
 
 Aucun serveur central, aucun compte, aucune mesure d'audience. Les données restent dans votre navigateur, dans votre Gist privé et sur votre Nightscout. Voir [Sécurité et données personnelles](docs/11-securite-donnees.md).
+
+---
+
+> ## ⚠️ Rappel final
+>
+> ### Cette application ne remplace aucun dispositif médical.
+> ### Vous êtes seul responsable de l'insuline administrée et des paramètres modifiés.
+> ### Vérifiez tout. Validez avec votre équipe de diabétologie. Utilisez à vos risques et périls.
+>
+> **[Conditions d'utilisation](docs/AVERTISSEMENT.md)**

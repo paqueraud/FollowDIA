@@ -1,5 +1,12 @@
 # 4. Installer et configurer xDrip+
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** que les glycémies du capteur remontent automatiquement vers Nightscout, et que le ou les téléphones suiveurs les reçoivent.
 
 **Temps nécessaire :** 30 à 45 minutes pour le téléphone porteur, 10 minutes par téléphone suiveur.

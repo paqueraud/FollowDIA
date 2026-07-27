@@ -2959,11 +2959,66 @@ window.addEventListener('unhandledrejection', e => {
     showFatalError('Erreur : ' + msg);
 });
 
+// ============================================================
+// CONDITIONS D'UTILISATION
+// Affichées à la première utilisation, puis consultables depuis
+// les paramètres. La version permet de redemander l'acceptation
+// si le texte évolue.
+// ============================================================
+const DISCLAIMER_KEY = 'followdia_terms_accepted';
+const DISCLAIMER_VERSION = '2026-07-27';
+
+function disclaimerAccepted() {
+    try {
+        return localStorage.getItem(DISCLAIMER_KEY) === DISCLAIMER_VERSION;
+    } catch (e) {
+        return false;
+    }
+}
+
+// mode 'accept' : première utilisation, case à cocher obligatoire
+// mode 'read'   : simple consultation depuis les paramètres
+function showDisclaimer(mode) {
+    const modal = $('#disclaimer-modal');
+    if (!modal) return;
+    const acceptRow = $('#disclaimer-accept-row');
+    const footer = $('#disclaimer-footer');
+    const check = $('#disclaimer-check');
+    const btn = $('#btn-disclaimer-accept');
+    const textEl = $('#disclaimer-text');
+    if (!acceptRow || !footer || !check || !btn) return;
+
+    const reading = mode === 'read';
+    acceptRow.classList.toggle('hidden', reading);
+    check.checked = false;
+    btn.disabled = !reading;
+    btn.textContent = reading ? 'Fermer' : 'Valider';
+    if (textEl) textEl.scrollTop = 0;
+
+    modal.classList.remove('hidden');
+
+    btn.onclick = () => {
+        if (!reading) {
+            if (!check.checked) return;
+            try { localStorage.setItem(DISCLAIMER_KEY, DISCLAIMER_VERSION); } catch (e) {}
+        }
+        modal.classList.add('hidden');
+    };
+    check.onchange = () => { btn.disabled = !check.checked; };
+}
+
 // Boot
 document.addEventListener('DOMContentLoaded', () => {
     // Nettoyage des clés de l'ancienne authentification locale
     localStorage.removeItem('followdia_pw_hash');
     sessionStorage.removeItem('followdia_auth');
+
+    // Les conditions doivent être acceptées avant tout usage
+    if (!disclaimerAccepted()) showDisclaimer('accept');
+
+    const termsBtn = $('#btn-show-terms');
+    if (termsBtn) termsBtn.addEventListener('click', () => showDisclaimer('read'));
+
     initApp();
 });
 

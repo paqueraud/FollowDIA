@@ -1,5 +1,12 @@
 # 7. Configurer l'application
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** relier l'application à vos services et l'adapter à votre enfant. Tous les réglages sont dans **⚙ Paramètres**, en haut à droite.
 
 **Temps nécessaire :** 15 minutes.
@@ -137,5 +144,10 @@ Le QR contient **exactement quatre informations** : l'adresse Nightscout, le jet
 - [ ] La synchronisation est configurée si vous utilisez plusieurs appareils.
 - [ ] Le thème et la taille du texte vous conviennent.
 - [ ] Vous avez appuyé sur **Sauvegarder**.
+
+
+---
+
+> ⚠️ **Rappel** — Rien de ce qui précède ne constitue un avis médical. **Vous êtes seul responsable** de l'insuline administrée et des réglages modifiés ; le développeur ne peut être tenu responsable d'aucun dommage. → **[Conditions d'utilisation](AVERTISSEMENT.md)**
 
 ➡️ Chapitre suivant : **[8. Utiliser l'application au quotidien](08-utilisation.md)**

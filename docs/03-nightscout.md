@@ -1,5 +1,12 @@
 # 3. Mettre en place Nightscout
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** disposer d'un serveur Nightscout en ligne, avec son **adresse** (URL) et un **jeton de lecture** (token) — les deux informations que vous saisirez plus tard dans FollowDIA.
 
 **Temps nécessaire :** 15 minutes avec un service hébergé, 1 à 2 heures en auto-hébergement.

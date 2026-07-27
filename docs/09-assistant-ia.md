@@ -1,5 +1,12 @@
 # 9. L'assistant IA — réviser les paramètres de la pompe
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** utiliser l'onglet Assistant pour obtenir une proposition argumentée de révision des plages horaires, ratios et sensibilités, et produire un rapport PDF à emporter en consultation.
 
 > ## ⚠️ À lire avant toute utilisation
@@ -175,5 +182,10 @@ Les paramètres d'insulinothérapie ne se modifient pas toutes les semaines. Un 
 - **L'analyse ne vaut que par la fraîcheur des données.** Si le dernier transfert de la pompe date de trois semaines, l'application vous avertit — et l'analyse ne reflétera pas la situation actuelle.
 - **Le modèle ne connaît pas votre contexte** : une semaine de gastro-entérite ou un stage sportif produiront des recommandations inadaptées si vous ne le mentionnez pas à votre équipe.
 - **Ce n'est pas un dispositif médical certifié**, et cela ne remplace pas le jugement clinique.
+
+
+---
+
+> ⚠️ **Rappel** — Rien de ce qui précède ne constitue un avis médical. **Vous êtes seul responsable** de l'insuline administrée et des réglages modifiés ; le développeur ne peut être tenu responsable d'aucun dommage. → **[Conditions d'utilisation](AVERTISSEMENT.md)**
 
 ➡️ Chapitre suivant : **[10. Synchronisation multi-appareils](10-synchronisation.md)**

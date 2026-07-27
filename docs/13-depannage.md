@@ -1,5 +1,12 @@
 # 13. Dépannage
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 Ce chapitre est organisé **par symptôme**. Trouvez celui qui correspond, puis suivez les vérifications dans l'ordre : elles vont de la cause la plus fréquente à la plus rare.
 
 ---
@@ -205,5 +212,10 @@ Rassemblez :
 5. si le problème est **reproductible** et sur **quels appareils**.
 
 > **Ne joignez jamais** de capture contenant un jeton, une clé API ou un mot de passe. Masquez-les avant tout envoi.
+
+
+---
+
+> ⚠️ **Rappel** — Rien de ce qui précède ne constitue un avis médical. **Vous êtes seul responsable** de l'insuline administrée et des réglages modifiés ; le développeur ne peut être tenu responsable d'aucun dommage. → **[Conditions d'utilisation](AVERTISSEMENT.md)**
 
 ⬅️ Retour au **[sommaire](README.md)**

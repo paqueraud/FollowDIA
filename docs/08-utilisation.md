@@ -1,5 +1,12 @@
 # 8. Utiliser l'application au quotidien
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** savoir se servir de chaque onglet, et comprendre les calculs affichés.
 
 ---
@@ -150,5 +157,10 @@ Il fait l'objet d'un chapitre entier : **[9. L'assistant IA](09-assistant-ia.md)
 | Le soir | onglet **Tableau de bord** : regarder les courbes post-bolus de la journée |
 | Chaque semaine | onglet **Synthèse** : suivre le temps dans la cible et le CV |
 | Avant la consultation | onglet **Assistant** : lancer une analyse et générer le rapport PDF |
+
+
+---
+
+> ⚠️ **Rappel** — Rien de ce qui précède ne constitue un avis médical. **Vous êtes seul responsable** de l'insuline administrée et des réglages modifiés ; le développeur ne peut être tenu responsable d'aucun dommage. → **[Conditions d'utilisation](AVERTISSEMENT.md)**
 
 ➡️ Chapitre suivant : **[9. L'assistant IA](09-assistant-ia.md)**

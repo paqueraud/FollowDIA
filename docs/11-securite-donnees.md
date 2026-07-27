@@ -1,5 +1,12 @@
 # 11. Sécurité et données personnelles
 
+> ### ⚠️ FollowDIA n'est pas un dispositif médical
+>
+> **Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.** Vérifiez chaque calcul, faites valider tout changement de réglage par votre équipe de diabétologie. Application fournie gratuitement, en l'état, sans garantie : le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.
+>
+> ➡️ **[Lire les conditions d'utilisation complètes](AVERTISSEMENT.md)**
+
+
 **Objectif de ce chapitre :** savoir précisément où vont les données de santé de votre enfant, ce qui est protégé, ce qui ne l'est pas, et comment limiter les risques.
 
 Ce chapitre est volontairement franc, y compris sur les limites de l'application.

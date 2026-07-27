@@ -2,14 +2,28 @@
 
 FollowDIA est une application de suivi de l'**insulinothérapie fonctionnelle**, conçue pour accompagner au quotidien un enfant vivant avec un diabète de type 1 : calcul des bolus repas, suivi des glycémies du capteur, statistiques cliniques, et assistance à la révision des paramètres de la pompe.
 
-> ## ⚠️ Avertissement important
+---
+
+> # ⚠️ AVERTISSEMENT
 >
-> **FollowDIA n'est pas un dispositif médical.** C'est un outil d'aide au calcul et au suivi, développé pour un usage familial. Il ne remplace ni votre lecteur de glycémie, ni votre pompe, ni l'avis de votre équipe de diabétologie.
+> # FollowDIA n'est pas un dispositif médical.
 >
-> - Vérifiez toujours un calcul de bolus avant de l'administrer.
-> - Ne modifiez **jamais** les paramètres de la pompe (ratios, sensibilités, basal) sans validation de votre diabétologue.
-> - Les recommandations produites par l'assistant IA sont une **aide à la décision**, jamais une prescription.
-> - En cas de doute sur une glycémie affichée, faites un contrôle capillaire.
+> # L'utilisateur est seul responsable de l'administration de l'insuline et de toute modification des paramètres de sa pompe.
+>
+> # Le développeur ne peut être tenu responsable d'aucun dommage résultant de l'utilisation de cette application.
+
+**Aucun marquage CE, aucune certification, aucune validation clinique.** Cet outil d'aide au calcul et au suivi ne remplace ni votre lecteur de glycémie, ni votre pompe, ni l'avis de votre équipe de diabétologie.
+
+- Vérifiez **toujours** un calcul de bolus avant de l'administrer.
+- Ne modifiez **jamais** les paramètres de la pompe (ratios, sensibilités, basal) sans validation de votre diabétologue.
+- Les recommandations produites par l'assistant IA sont une **aide à la décision**, jamais une prescription.
+- En cas de doute sur une glycémie affichée, faites un **contrôle capillaire**.
+
+Application fournie **gratuitement, en l'état, sans garantie d'aucune sorte**. Son utilisation vaut acceptation pleine et entière des conditions.
+
+### ➡️ **[LIRE LES CONDITIONS D'UTILISATION COMPLÈTES](AVERTISSEMENT.md)**
+
+---
 
 ---
 
@@ -32,6 +46,7 @@ Puis, quand vous le souhaitez :
 
 | Chapitre | Sujet |
 |---|---|
+| **[⚠️ Avertissement et conditions d'utilisation](AVERTISSEMENT.md)** | **à lire avant toute utilisation** |
 | [9. Assistant IA](09-assistant-ia.md) | révision des ratios et sensibilités assistée par l'intelligence artificielle |
 | [10. Synchronisation multi-appareils](10-synchronisation.md) | partager les mêmes données entre parents |
 | [11. Sécurité et données personnelles](11-securite-donnees.md) | où vont vos données, ce qui est protégé |
@@ -66,6 +81,16 @@ Identifiant du Gist ........ ______________________________
 Identifiants myDiabby ...... ______________________________
 Clé API Anthropic .......... ______________________________
 ```
+
+---
+
+---
+
+> ## ⚠️ Rappel
+>
+> ### FollowDIA n'est pas un dispositif médical. Vous êtes seul responsable de l'insuline que vous administrez et des réglages que vous modifiez. Le développeur ne peut être tenu responsable d'aucun dommage.
+>
+> **[Conditions d'utilisation complètes](AVERTISSEMENT.md)**
 
 ---
 

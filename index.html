@@ -193,6 +193,13 @@
                     <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="settings-disclaimer">
+                        <p class="sd-title">⚠️ FollowDIA n'est pas un dispositif médical</p>
+                        <p>Aucun marquage CE, aucune validation clinique. Les valeurs et calculs affichés ne constituent ni un avis médical, ni une prescription.</p>
+                        <p><b>Vous êtes seul responsable de l'administration de l'insuline et de toute modification des paramètres de votre pompe.</b> Vérifiez chaque calcul avant usage et faites valider tout changement de réglage par votre équipe de diabétologie.</p>
+                        <p>Application fournie gratuitement, en l'état, sans garantie. Le développeur ne peut être tenu responsable d'aucun dommage lié à son utilisation.</p>
+                        <button type="button" id="btn-show-terms" class="btn-link">Lire les conditions d'utilisation complètes</button>
+                    </div>
                     <h4>Paramètres par repas</h4>
                     <div id="settings-meals"></div>
                     <h4>Apparence</h4>
@@ -278,6 +285,77 @@
                 <div class="modal-footer">
                     <button id="btn-save-food" class="btn btn-primary">Ajouter</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Disclaimer / conditions d'utilisation (première utilisation, puis consultable) -->
+    <div id="disclaimer-modal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content disclaimer-content">
+            <div class="modal-header">
+                <h3>Avertissement et conditions d'utilisation</h3>
+            </div>
+            <div class="modal-body">
+                <div class="disclaimer-banner">
+                    <p>FollowDIA n'est pas un dispositif médical.</p>
+                    <p>Vous êtes seul responsable de l'administration de l'insuline et de la modification des paramètres de votre pompe.</p>
+                    <p>Le développeur ne peut être tenu responsable d'aucun dommage résultant de l'utilisation de cette application.</p>
+                </div>
+
+                <div class="disclaimer-text" id="disclaimer-text">
+                    <h4>1. Nature du logiciel</h4>
+                    <p>FollowDIA est un logiciel libre et gratuit, développé et mis à disposition de la communauté à titre bénévole, altruiste et non lucratif. Aucune contrepartie financière n'est perçue en échange de sa mise à disposition ou de son utilisation.</p>
+                    <p><b>FollowDIA n'est pas un dispositif médical</b> au sens du règlement (UE) 2017/745. Il ne dispose d'aucun marquage CE, n'a fait l'objet d'aucune certification, d'aucune évaluation clinique ni d'aucune validation par une autorité de santé.</p>
+
+                    <h4>2. Absence de finalité médicale</h4>
+                    <p>Aucun élément affiché — valeur, calcul, statistique, graphique, recommandation ou rapport — ne constitue un avis médical, un diagnostic, une prescription ni une recommandation thérapeutique. L'application ne se substitue en aucun cas à un professionnel de santé, à un dispositif médical certifié, ni au protocole de soins établi par l'équipe de diabétologie.</p>
+
+                    <h4>3. Responsabilité exclusive de l'utilisateur</h4>
+                    <p>L'utilisateur est seul et pleinement responsable :</p>
+                    <ul>
+                        <li>de <b>l'administration de l'insuline</b> : décision d'injecter, dose, moment et voie d'administration ;</li>
+                        <li>de <b>toute modification des paramètres de la pompe</b> : ratios, sensibilités, cibles, débits de basal, plages horaires ;</li>
+                        <li>de la <b>vérification préalable</b> de tout calcul ou proposition affichés, avant toute mise en pratique ;</li>
+                        <li>de la <b>surveillance clinique</b> de la personne concernée et de la conduite à tenir en cas d'hypoglycémie ou d'hyperglycémie ;</li>
+                        <li>de l'<b>exactitude des données saisies</b> ;</li>
+                        <li>du <b>respect des consignes de son équipe soignante</b>, qui prévalent en toutes circonstances.</li>
+                    </ul>
+                    <p><b>Aucune dose d'insuline ne doit être administrée, et aucun paramètre de pompe ne doit être modifié, sur la seule foi de cette application.</b></p>
+
+                    <h4>4. Vérification obligatoire</h4>
+                    <p>L'utilisateur s'engage à contrôler tout calcul de bolus avant administration, à vérifier toute glycémie douteuse par un contrôle capillaire au moyen d'un lecteur certifié, et à faire valider par son équipe de diabétologie toute modification de paramètre avant application sur la pompe.</p>
+
+                    <h4>5. Recommandations générées par intelligence artificielle</h4>
+                    <p>Certaines fonctions produisent des analyses au moyen d'un modèle d'intelligence artificielle exploité par un tiers. Ces productions constituent une simple aide à la réflexion. Elles sont par nature susceptibles d'erreurs, d'omissions ou d'interprétations inexactes, et ne tiennent pas compte d'éléments cliniques que seuls l'utilisateur et son équipe soignante connaissent. <b>Elles ne constituent en aucun cas une prescription et ne doivent jamais être appliquées sans validation médicale préalable.</b></p>
+
+                    <h4>6. Services tiers</h4>
+                    <p>Le fonctionnement repose sur des services tiers (Nightscout, xDrip+, capteurs de glycémie, myDiabby, GitHub, API d'Anthropic) sur lesquels le développeur n'exerce aucun contrôle. Leur disponibilité, leur exactitude et leur continuité ne sont pas garanties. Nightscout et xDrip+ sont eux-mêmes des projets communautaires non certifiés en tant que dispositifs médicaux.</p>
+
+                    <h4>7. Absence de garantie</h4>
+                    <p>L'application est fournie <b>« EN L'ÉTAT », SANS GARANTIE D'AUCUNE SORTE</b>, expresse ou implicite. Ne sont notamment pas garanties : l'exactitude des calculs et des analyses, l'absence d'erreurs ou d'interruptions, l'adéquation à un usage particulier ou à une situation clinique donnée, la disponibilité du service et la conservation des données.</p>
+
+                    <h4>8. Limitation de responsabilité</h4>
+                    <p><b>Dans toute la mesure permise par le droit applicable, le développeur, ainsi que toute personne ayant contribué à l'application, ne pourront être tenus responsables d'aucun dommage</b>, direct ou indirect, matériel ou immatériel, prévisible ou imprévisible, résultant de ou lié à : l'utilisation de l'application ou l'impossibilité de l'utiliser ; le suivi, total ou partiel, de toute indication ou recommandation fournie ; toute erreur, omission, défaut ou interruption de l'application ou des services tiers ; toute perte ou altération de données ; et notamment, sans que cette liste soit limitative, toute hypoglycémie, hyperglycémie, acidocétose, complication, préjudice corporel, hospitalisation ou décès.</p>
+                    <p>L'utilisateur reconnaît expressément <b>utiliser l'application gratuitement, en pleine connaissance de cause, de sa propre initiative et à ses seuls risques et périls</b>, et renonce à tout recours contre le développeur à raison de cette utilisation.</p>
+
+                    <h4>9. Public visé</h4>
+                    <p>L'application s'adresse à des personnes déjà formées à l'insulinothérapie fonctionnelle par une équipe de diabétologie. Elle est destinée à un usage personnel et privé.</p>
+
+                    <h4>10. Données personnelles</h4>
+                    <p>L'application ne comporte aucun serveur central : le développeur n'a accès à aucune donnée de l'utilisateur. Les données transitent exclusivement entre l'appareil et les services que l'utilisateur a lui-même configurés. L'utilisateur est seul responsable de la configuration, de la sécurisation et de la conservation de ses données.</p>
+
+                    <h4>11. Dispositions diverses</h4>
+                    <p>Toute utilisation vaut acceptation sans réserve des présentes conditions ; à défaut d'acceptation, l'utilisateur doit cesser d'utiliser l'application et la désinstaller. Si l'une des stipulations était déclarée nulle ou inapplicable, les autres conserveraient leur plein effet. Les présentes conditions peuvent être modifiées ; la poursuite de l'utilisation vaut acceptation de la version en vigueur. Elles sont régies par le droit français.</p>
+                </div>
+
+                <label class="disclaimer-accept" id="disclaimer-accept-row">
+                    <input type="checkbox" id="disclaimer-check">
+                    <span>J'ai bien lu et compris les termes et conditions d'utilisation de l'application.</span>
+                </label>
+            </div>
+            <div class="modal-footer" id="disclaimer-footer">
+                <button id="btn-disclaimer-accept" class="btn btn-primary" disabled>Valider</button>
             </div>
         </div>
     </div>
