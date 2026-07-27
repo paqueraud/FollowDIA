@@ -150,7 +150,11 @@ Ces instantanés sont listés sous les boutons, avec leur date et le nombre de j
 
 Une ligne par repas saisi, avec la date, le repas, la glycémie, la tendance, l'insuline active, la correction recommandée et faite, les glucides, les bolus théoriques et injectés, les pourcentages réalisés, les paramètres du repas et le détail des aliments (masse servie et masse restante).
 
-Le format est prévu pour l'Excel français : séparateur point-virgule, virgule décimale et encodage avec marque d'ordre — le fichier s'ouvre d'un double-clic, accents compris.
+Le format est prévu pour les tableurs français : **séparateur point-virgule**, **virgule décimale** et **encodage Windows-1252**. Le fichier s'ouvre d'un double-clic dans Excel, LibreOffice ou Google Sheets, accents et « œ » compris.
+
+> **Pourquoi pas de l'UTF-8 ?** Parce que les tableurs ouvrent un `.csv` dans l'encodage occidental historique sans tenir compte de l'indication de codage : un fichier UTF-8 y affiche « DÃ©jeuner » au lieu de « Déjeuner ». Windows-1252 couvre l'ensemble des caractères français ; les rares caractères qu'il ne couvre pas sont translittérés (par exemple `ā` → `a`) plutôt que perdus.
+
+La **tendance** est écrite en toutes lettres — « hausse lente », « stable », « baisse forte » — car les flèches ↗ ↘ n'existent dans aucun encodage de tableur, et un libellé se lit et se filtre mieux dans une colonne.
 
 ---
 

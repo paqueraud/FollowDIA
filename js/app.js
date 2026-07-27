@@ -5106,6 +5106,39 @@ async function exportBackupFile() {
 // Export CSV des repas (séparateur « ; » et virgule décimale
 // pour une ouverture directe dans Excel en français)
 // ------------------------------------------------------------
+// Les flèches de tendance n'existent dans aucun encodage tableur :
+// on écrit un libellé, plus clair dans une colonne de toute façon.
+const CSV_TREND_LABELS = {
+    '↑↑': 'hausse forte', '↑': 'hausse', '↗': 'hausse lente', '→': 'stable',
+    '↘': 'baisse lente', '↓': 'baisse', '↓↓': 'baisse forte'
+};
+
+// Encodage Windows-1252 : les tableurs lisent un CSV dans l'encodage
+// occidental hérité et ignorent le BOM UTF-8, si bien qu'un fichier UTF-8
+// y affiche « DÃ©jeuner ». Cet encodage couvre les accents français, « œ »
+// et « € » ; ce qu'il ne couvre pas est translittéré (é → e) plutôt que perdu.
+function csvEncodeWindows1252(text) {
+    const s = String(text == null ? '' : text).normalize('NFC');
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+        const cp = s.charCodeAt(i);
+        if (cp < 256) { out.push(cp); continue; }
+        if (typeof PDF_WINANSI !== 'undefined' && PDF_WINANSI[cp] != null) {
+            out.push(PDF_WINANSI[cp]);
+            continue;
+        }
+        // Repli : on retire les signes diacritiques pour retomber sur du latin de base
+        const base = s[i].normalize('NFD').replace(/[̀-ͯ]/g, '');
+        let done = false;
+        for (let j = 0; j < base.length; j++) {
+            const c = base.charCodeAt(j);
+            if (c < 256) { out.push(c); done = true; }
+        }
+        if (!done) out.push(63); // '?'
+    }
+    return out;
+}
+
 function csvNum(v) {
     if (v == null || v === '' || (typeof v === 'number' && !isFinite(v))) return '';
     return String(v).replace('.', ',');
@@ -5117,11 +5150,11 @@ function csvCell(v) {
 }
 
 function buildMealsCsv() {
-    const header = ['Date', 'Repas', 'Glycemie (mg/dl)', 'Tendance', 'Insuline active (UI)',
-        'Correction recommandee (UI)', 'Correction faite (UI)', 'Correction realisee (%)',
-        'Glucides (g)', 'Bolus repas theorique (UI)', 'Bolus repas injecte (UI)', 'Bolus repas realise (%)',
-        'Bolus total du (UI)', 'Bolus total fait (UI)', 'Bolus total realise (%)',
-        'Pourcentage voulu (%)', 'Ratio (g/UI)', 'Sensibilite', 'Cible', 'Aliments'];
+    const header = ['Date', 'Repas', 'Glycémie (mg/dl)', 'Tendance', 'Insuline active (UI)',
+        'Correction recommandée (UI)', 'Correction faite (UI)', 'Correction réalisée (%)',
+        'Glucides (g)', 'Bolus repas théorique (UI)', 'Bolus repas injecté (UI)', 'Bolus repas réalisé (%)',
+        'Bolus total dû (UI)', 'Bolus total fait (UI)', 'Bolus total réalisé (%)',
+        'Pourcentage voulu (%)', 'Ratio (g/UI)', 'Sensibilité', 'Cible', 'Aliments'];
     const rows = [header.map(csvCell).join(';')];
 
     Object.keys(state).sort().forEach(date => {
@@ -5139,7 +5172,7 @@ function buildMealsCsv() {
                 }).join(' | ');
             rows.push([
                 csvCell(date), csvCell(m.label),
-                csvNum(md.glucose), csvCell(md.trend || ''), csvNum(md.activeInsulin),
+                csvNum(md.glucose), csvCell(CSV_TREND_LABELS[md.trend] || md.trend || ''), csvNum(md.activeInsulin),
                 csvNum(t.correction && t.correction.safe), csvNum(t.correctionGivenUI), csvNum(t.correctionPct),
                 csvNum(t.totalCarbs), csvNum(t.mealBolusUI), csvNum(t.totalBolusGivenUI), csvNum(t.mealPct),
                 csvNum(t.totalDueWithCorrection), csvNum(t.totalGivenWithCorrection), csvNum(t.pctGiven),
@@ -5155,9 +5188,8 @@ function exportMealsCsv() {
     try {
         const rows = buildMealsCsv();
         if (rows.length < 2) { toast('Aucun repas à exporter'); return; }
-        // BOM UTF-8 : sans lui, Excel affiche mal les accents
-        const csv = '﻿' + rows.join('\r\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const bytes = new Uint8Array(csvEncodeWindows1252(rows.join('\r\n')));
+        const blob = new Blob([bytes], { type: 'text/csv;charset=windows-1252' });
         downloadBlob(blob, 'FollowDIA_repas_' + backupStamp() + '.csv');
         toast((rows.length - 1) + ' repas exportés');
     } catch (e) {
