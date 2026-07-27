@@ -60,6 +60,25 @@ Le bouton **Ajouter un aliment** (vert) ajoute une ligne. Si l'enfant a tout man
 
 > Si vous saisissez une masse restante **supérieure** à la masse servie, l'application signale l'erreur au lieu de calculer un résultat aberrant.
 
+### Les ajouts rapides
+
+Un enfant mange souvent la même chose. Deux boutons bleus, juste au-dessus du bouton vert, remplissent les aliments habituels sans les ressaisir.
+
+| Repas | Bouton | Ce qu'il fait |
+|---|---|---|
+| Petit-déjeuner | **+ Ajouter pain + nutella** | ajoute directement 80 g de pain et 25 g de nutella |
+| Petit-déjeuner | **+ Ajouter viennoiseries** | propose pain, pain au lait, briochette, nutella |
+| Déjeuner, goûter, dîner | **+ Ajouter féculent typique** | propose pain, pâtes, riz, couscous complet Alpina, ebly, frites, pomme de terre |
+| Déjeuner, goûter, dîner | **+ Ajouter dessert typique** | propose fromage blanc 100 g + sucre 15 g, glace extrême mangue (79 g), pastèque, browkie, crêpe Whaou choco (32 g) |
+
+Quelques précisions :
+
+- Les portions habituelles sont **pré-remplies** : 79 g pour la glace, 32 g pour la crêpe, 100 g de fromage blanc avec 15 g de sucre. La liste indique pour chaque choix la masse pré-remplie et la teneur en glucides.
+- Pour un aliment qui se pèse (pâtes, pastèque…), la ligne est créée et **le curseur se place directement dans la masse servie**.
+- La **masse restante est toujours laissée vide** : elle se saisit après le repas, comme d'habitude.
+- Une ligne d'aliment restée vide est réutilisée avant d'en créer une nouvelle.
+- Ces aliments viennent de la **bibliothèque** ([chapitre 8.5](#85-longlet-aliments)). Si vous en avez supprimé un, il apparaît grisé dans la liste plutôt que d'être ajouté avec zéro glucide.
+
 ### Étape 4 — Le bolus repas
 
 À partir des glucides absorbés :

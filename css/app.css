@@ -1161,6 +1161,71 @@ canvas {
     font-weight: 700;
 }
 
+/* Ajouts rapides — fond bleu, juste au-dessus du bouton vert d'ajout */
+.quick-add-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.btn-quick-add {
+    flex: 1 1 45%;
+    min-width: 140px;
+    padding: 12px 10px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: calc(14px * var(--fs, 1));
+    font-weight: 700;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-quick-add:active { background: var(--accent-light); }
+
+/* Liste de choix (viennoiseries, féculent, dessert) */
+.quickadd-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.quickadd-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    padding: 12px 14px;
+    background: var(--btn-surface);
+    border: 1px solid var(--btn-border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.quickadd-choice:active { background: var(--btn-surface-active); }
+
+.quickadd-name {
+    font-size: calc(16px * var(--fs, 1));
+    font-weight: 600;
+}
+
+.quickadd-detail {
+    font-size: calc(12px * var(--fs, 1));
+    color: var(--text-dim);
+    opacity: 0.85;
+}
+
+.quickadd-choice.quickadd-absent {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* Add food button in meal — solid green in both themes */
 .btn-add-food-entry {
     width: 100%;

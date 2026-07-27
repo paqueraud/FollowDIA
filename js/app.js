@@ -12,6 +12,56 @@ const MEALS = [
     { id: 'diner', label: 'Dîner', time: '19:00', icon: '🌙', defaultRatio: 26, defaultSensitivity: 150, defaultTarget: 150, defaultWantPct: 100 }
 ];
 
+// ------------------------------------------------------------
+// Ajouts rapides : les repas types, en un ou deux taps
+// ------------------------------------------------------------
+// Les noms doivent correspondre EXACTEMENT à ceux de la bibliothèque
+// (foods.json ou aliments personnels), sans quoi le calcul des glucides
+// renverrait « Aliment inconnu ». Un aliment absent — supprimé de la
+// bibliothèque par exemple — est proposé grisé au lieu d'être ajouté à zéro
+// glucide sans que rien ne le signale.
+function qaItem(name, grams) { return { name: name, grams: grams == null ? null : grams }; }
+function qaChoice(name, grams) { return { items: [qaItem(name, grams)] }; }
+
+// Féculents et desserts sont identiques pour déjeuner, goûter et dîner
+const QUICK_ADD_STARCH = {
+    label: '+ Ajouter féculent typique',
+    title: 'Féculent typique',
+    choices: [
+        qaChoice('pain'), qaChoice('pâtes'), qaChoice('riz'),
+        qaChoice('couscous complet Alpina'), qaChoice('ebly'),
+        qaChoice('frites'), qaChoice('pomme de terre')
+    ]
+};
+
+const QUICK_ADD_DESSERT = {
+    label: '+ Ajouter dessert typique',
+    title: 'Dessert typique',
+    choices: [
+        // Portions habituelles : la masse est pré-remplie, il reste à saisir
+        // ce qui n'a pas été mangé.
+        { label: 'fromage blanc 100 g + sucre 15 g', items: [qaItem('fromage blanc', 100), qaItem('sucre', 15)] },
+        qaChoice('glace extreme mangue (79g)', 79),
+        qaChoice('pastèque'),
+        qaChoice('browkie (brownie/cookie)'),
+        qaChoice('crêpe whaou choco (32g)', 32)
+    ]
+};
+
+const MEAL_QUICK_ADDS = {
+    petitdej: [
+        { label: '+ Ajouter pain + nutella', items: [qaItem('pain', 80), qaItem('nutella', 25)] },
+        {
+            label: '+ Ajouter viennoiseries',
+            title: 'Viennoiseries',
+            choices: [qaChoice('pain'), qaChoice('pain au lait'), qaChoice('briochette'), qaChoice('nutella')]
+        }
+    ],
+    dejeuner: [QUICK_ADD_STARCH, QUICK_ADD_DESSERT],
+    gouter: [QUICK_ADD_STARCH, QUICK_ADD_DESSERT],
+    diner: [QUICK_ADD_STARCH, QUICK_ADD_DESSERT]
+};
+
 const TRENDS = ['↑↑', '↑', '↗', '→', '↘', '↓', '↓↓'];
 const TREND_OFFSETS = { '↑↑': 90, '↑': 60, '↗': 30, '→': 0, '↘': -30, '↓': -60, '↓↓': -90 };
 
@@ -688,6 +738,7 @@ function renderMeal() {
         <div class="card">
             <h3>Aliments</h3>
             ${foodsHtml}
+            ${quickAddRowHtml(currentMeal)}
             <button class="btn-add-food-entry" id="btn-add-food-entry">+ Ajouter un aliment</button>
             ${totalsHtml}
         </div>
@@ -706,6 +757,102 @@ function renderMeal() {
     }
 
     bindMealEvents();
+}
+
+// ------------------------------------------------------------
+// Ajouts rapides
+// ------------------------------------------------------------
+function quickAddRowHtml(mealId) {
+    const groups = MEAL_QUICK_ADDS[mealId] || [];
+    if (!groups.length) return '';
+    return '<div class="quick-add-row">'
+        + groups.map((g, i) => '<button type="button" class="btn-quick-add" data-qa="' + i + '">'
+            + asstEsc(g.label) + '</button>').join('')
+        + '</div>';
+}
+
+// Intitulé d'un choix : son libellé explicite, sinon le nom de l'aliment
+function quickAddLabel(choice) {
+    return choice.label || choice.items.map(it => it.name).join(' + ');
+}
+
+// Virgule décimale : le reste de l'application affiche des grammes en français
+function quickAddNum(n) { return String(round1(n)).replace('.', ','); }
+
+// Ligne d'information sous l'intitulé : masse pré-remplie et teneur en glucides.
+// Pour un choix composé, l'intitulé porte déjà les masses : on ne répète que
+// la teneur, aliment par aliment.
+function quickAddDetail(choice) {
+    if (choice.items.length > 1) {
+        return choice.items.map(it => {
+            const f = findFood(it.name);
+            return it.name + ' ' + (f ? quickAddNum(f.g) + ' g/100 g' : '?');
+        }).join(' · ');
+    }
+    const it = choice.items[0];
+    const parts = [it.grams != null ? it.grams + ' g pré-remplis' : 'masse à saisir'];
+    const f = findFood(it.name);
+    if (f) parts.push(quickAddNum(f.g) + ' g de glucides pour 100 g');
+    return parts.join(' · ');
+}
+
+// Ajoute les aliments au repas courant. Les lignes vides laissées par une
+// saisie précédente sont réutilisées avant d'en créer de nouvelles.
+function quickAddFoods(items) {
+    const missing = items.filter(it => !findFood(it.name)).map(it => it.name);
+    if (missing.length) {
+        toast('Absent de la bibliothèque : ' + missing.join(', '));
+        return;
+    }
+    const md = getMealData(currentDate, currentMeal);
+    let focusIndex = -1;
+    items.forEach(it => {
+        let entry = md.foods.find(f => !f.name && f.massServed == null);
+        if (!entry) { entry = { name: '', massServed: null, massRemaining: null }; md.foods.push(entry); }
+        entry.name = it.name;
+        entry.massServed = it.grams != null ? it.grams : null;
+        entry.massRemaining = null;
+        if (focusIndex < 0 && it.grams == null) focusIndex = md.foods.indexOf(entry);
+    });
+    renderMeal();
+    autoSave();
+    toast(items.map(it => it.name + (it.grams != null ? ' ' + it.grams + ' g' : '')).join(' + ') + ' ajouté');
+    // Sans masse pré-remplie, c'est la première chose à saisir : on y place le curseur
+    if (focusIndex >= 0) {
+        setTimeout(() => {
+            const input = $('.food-served[data-index="' + focusIndex + '"]', $('#meal-content'));
+            if (input) { input.focus(); input.select(); }
+        }, 50);
+    }
+}
+
+function closeQuickAddPicker() {
+    const modal = $('#quickadd-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function openQuickAddPicker(group) {
+    const modal = $('#quickadd-modal');
+    const list = $('#quickadd-list');
+    if (!modal || !list) return;
+    $('#quickadd-title').textContent = group.title || 'Choisir un aliment';
+    list.innerHTML = group.choices.map((c, i) => {
+        const absent = c.items.some(it => !findFood(it.name));
+        return '<button type="button" class="quickadd-choice' + (absent ? ' quickadd-absent' : '')
+            + '" data-choice="' + i + '"' + (absent ? ' disabled' : '') + '>'
+            + '<span class="quickadd-name">' + asstEsc(quickAddLabel(c)) + '</span>'
+            + '<span class="quickadd-detail">'
+            + asstEsc(absent ? 'absent de votre bibliothèque' : quickAddDetail(c))
+            + '</span></button>';
+    }).join('');
+    list.onclick = e => {
+        const btn = e.target.closest('.quickadd-choice');
+        if (!btn || btn.disabled) return;
+        const choice = group.choices[parseInt(btn.dataset.choice, 10)];
+        closeQuickAddPicker();
+        if (choice) quickAddFoods(choice.items);
+    };
+    modal.classList.remove('hidden');
 }
 
 let _mealEventsbound = false;
@@ -747,6 +894,17 @@ function bindMealEvents() {
             // Fetch CGM glucose + trend
             if (e.target.closest('#btn-fetch-cgm')) {
                 fillGlucoseFromCGM();
+                return;
+            }
+
+            // Ajout rapide : soit directement, soit via une liste de choix
+            const qaBtn = e.target.closest('.btn-quick-add');
+            if (qaBtn) {
+                const group = (MEAL_QUICK_ADDS[currentMeal] || [])[parseInt(qaBtn.dataset.qa, 10)];
+                if (group) {
+                    if (group.choices) openQuickAddPicker(group);
+                    else quickAddFoods(group.items);
+                }
                 return;
             }
 
@@ -2893,6 +3051,11 @@ async function initApp() {
     $('#btn-add-food').addEventListener('click', () => $('#food-modal').classList.remove('hidden'));
     $$('#food-modal .modal-close, #food-modal .modal-overlay').forEach(el => {
         el.addEventListener('click', () => $('#food-modal').classList.add('hidden'));
+    });
+
+    // Choix d'un ajout rapide
+    $$('#quickadd-modal .modal-close, #quickadd-modal .modal-overlay').forEach(el => {
+        el.addEventListener('click', closeQuickAddPicker);
     });
 
     $('#btn-save-food').addEventListener('click', () => {
